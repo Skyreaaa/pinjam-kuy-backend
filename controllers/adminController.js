@@ -30,17 +30,6 @@ exports.getStats = async (req, res) => {
         res.status(500).json({ message: 'Gagal mengambil statistik.' });
     }
 };
-            totalUsers: totalUsers || 0,
-            totalBooks: totalBooks || 0,
-            totalLoans: totalLoans || 0,
-            totalReturns: totalReturns || 0,
-            totalFines: totalFines || 0
-        });
-    } catch (e) {
-        console.error('[ADMIN][STATS] Error:', e);
-        res.status(500).json({ message: 'Gagal mengambil statistik.' });
-    }
-};
 
 // 1. Top 5 Most Borrowed Books
 exports.getTopBooks = async (req, res) => {
