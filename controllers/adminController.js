@@ -123,7 +123,7 @@ exports.getNotificationStats = async (req, res) => {
         const _pgResult = await pool.query(`
             SELECT DATE(createdAt) as date, COUNT(*) as notifCount
             FROM user_notifications
-            WHERE createdAt >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+            WHERE createdAt >= DATE_SUB(CURRENT_DATE, INTERVAL 30 DAY)
             GROUP BY date
             ORDER BY date DESC
         `);
@@ -223,7 +223,7 @@ exports.createUser = async (req, res) => {
     try {
         // Cek duplikasi NPM
         const _tmpResult = await pool.query('SELECT id FROM users WHERE npm = $1', [npm]);
-        if (duplicate.length > 0) {
+        if (duplicateResult.rows && duplicateResult.rows.length > 0) {
             return res.status(400).json({ message: 'NPM sudah terdaftar.' });
         }
 
@@ -233,7 +233,7 @@ exports.createUser = async (req, res) => {
             [username, npm, hashedPassword, role, fakultas || null, prodi || null, angkatan || null, 0]
         );
 
-        res.status(201).json({ success: true, message: 'Pengguna baru berhasil ditambahkan.', userId: result.insertId });
+        res.status(201).json({ success: true, message: 'Pengguna baru berhasil ditambahkan.', userId: result.rows[0]?.id });
     } catch (error) {
         console.error('❌ Error creating user:', error);
         res.status(500).json({ message: 'Gagal menambahkan pengguna.' });
@@ -250,15 +250,15 @@ exports.updateUser = async (req, res) => {
         return res.status(400).json({ message: 'Username, NPM, dan Role wajib diisi.' });
     }
 
-    let connection;
+    // PostgreSQL uses pool directly
     try {
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
+        // No getConnection needed
+        // No transactions for now
 
         // Cek duplikasi NPM (kecuali untuk user ini sendiri)
-        const [duplicate] = await connection.query('SELECT id FROM users WHERE npm = ? AND id != ?', [npm, userId]);
-        if (duplicate.length > 0) {
-            await connection.rollback();
+        const duplicateResult = await pool.query('SELECT id FROM users WHERE npm = $1 AND id != $2', [npm, userId]);
+        if (duplicateResult.rows && duplicateResult.rows.length > 0) {
+            // No rollback
             return res.status(400).json({ message: 'NPM sudah digunakan oleh pengguna lain.' });
         }
 
@@ -273,21 +273,21 @@ exports.updateUser = async (req, res) => {
         
         updateQuery += ' WHERE id = ?';
 
-        const [result] = await connection.query(updateQuery, params);
+        const result = await pool.query(updateQuery, params);
 
-        if (result.affectedRows === 0) {
-            await connection.rollback();
+        if (result.rowCount === 0) {
+            // No rollback
             return res.status(404).json({ message: 'Pengguna tidak ditemukan.' });
         }
 
-        await connection.commit();
+        // No commit
         res.json({ success: true, message: 'Data pengguna berhasil diperbarui.' });
     } catch (error) {
-        if (connection) await connection.rollback();
+        if (connection) // No rollback
         console.error('❌ Error updating user:', error);
         res.status(500).json({ message: 'Gagal memperbarui data pengguna.' });
     } finally {
-        if (connection) connection.release();
+        if (connection) // No release
     }
 };
 
@@ -296,37 +296,37 @@ exports.deleteUser = async (req, res) => {
     const pool = getDBPool(req);
     const userId = req.params.id;
 
-    let connection;
+    // PostgreSQL uses pool directly
     try {
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
+        // No getConnection needed
+        // No transactions for now
         
         // Cek apakah user memiliki pinjaman aktif/tertunda
-        const [activeLoans] = await connection.query(
-            'SELECT COUNT(*) as count FROM loans WHERE user_id = ? AND status IN (?, ?, ?)', 
+        const [activeLoans] = await pool.query(
+            'SELECT COUNT(*) as count FROM loans WHERE user_id = $1 AND status IN ($2, $3, $4)', 
             [userId, 'Sedang Dipinjam', 'Menunggu Persetujuan', 'Siap Dikembalikan']
         );
         if (activeLoans[0].count > 0) {
-            await connection.rollback();
+            // No rollback
             return res.status(400).json({ message: `Tidak dapat menghapus pengguna. Terdapat ${activeLoans[0].count} pinjaman yang masih aktif (Dipinjam/Tertunda/Siap Dikembalikan).` });
         }
 
         // Hapus data pengguna
-        const [result] = await connection.query('DELETE FROM users WHERE id = ?', [userId]);
+        const result = await pool.query('DELETE FROM users WHERE id = $1', [userId]);
 
-        if (result.affectedRows === 0) {
-            await connection.rollback();
+        if (result.rowCount === 0) {
+            // No rollback
             return res.status(404).json({ message: 'Pengguna tidak ditemukan.' });
         }
 
-        await connection.commit();
+        // No commit
         res.json({ success: true, message: 'Pengguna berhasil dihapus.' });
     } catch (error) {
-        if (connection) await connection.rollback();
+        if (connection) // No rollback
         console.error('❌ Error deleting user:', error);
         res.status(500).json({ message: 'Gagal menghapus pengguna.' });
     } finally {
-        if (connection) connection.release();
+        if (connection) // No release
     }
 };
 
@@ -346,7 +346,7 @@ exports.applyPenalty = async (req, res) => {
             [amount, amount, npm]
         );
 
-        if (result.affectedRows === 0) {
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Pengguna dengan NPM tersebut tidak ditemukan.' });
         }
 
@@ -368,7 +368,7 @@ exports.resetPenalty = async (req, res) => {
             [id]
         );
 
-        if (result.affectedRows === 0) {
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Pengguna tidak ditemukan.' });
         }
         
@@ -407,15 +407,15 @@ exports.verifyFinePayment = async (req, res) => {
         return res.status(400).json({ message: 'Action harus approve atau reject.' });
     }
     
-    let connection;
+    // PostgreSQL uses pool directly
     try {
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
+        // No getConnection needed
+        // No transactions for now
         
         // Get payment detail
-        const [payments] = await connection.query('SELECT * FROM fine_payments WHERE id = $1 LIMIT 1', [id]);
+        const [payments] = await pool.query('SELECT * FROM fine_payments WHERE id = $1 LIMIT 1', [id]);
         if (!payments.length) {
-            await connection.rollback();
+            // No rollback
             return res.status(404).json({ message: 'Pembayaran tidak ditemukan.' });
         }
         
@@ -425,8 +425,8 @@ exports.verifyFinePayment = async (req, res) => {
             // Update payment status
             let updateProof = proofUrl || payment.proof_url;
             
-            await connection.query(
-                'UPDATE fine_payments SET status = ?, verified_by = ?, verified_at = CURRENT_TIMESTAMP, admin_notes = ?, proof_url = ? WHERE id = ?',
+            await pool.query(
+                'UPDATE fine_payments SET status = $1, verified_by = $2, verified_at = CURRENT_TIMESTAMP, admin_notes = $3, proof_url = $4 WHERE id = $5',
                 ['approved', adminId, notes || null, updateProof, id]
             );
             
@@ -434,7 +434,7 @@ exports.verifyFinePayment = async (req, res) => {
             const loanIds = JSON.parse(payment.loan_ids || '[]');
             if (loanIds.length > 0) {
                 const placeholders = loanIds.map(() => '?').join(',');
-                await connection.query(
+                await pool.query(
                     `UPDATE loans SET finePaid = 1 WHERE id IN (${placeholders})`,
                     loanIds
                 );
@@ -457,7 +457,7 @@ exports.verifyFinePayment = async (req, res) => {
             }
             
             // Save to user_notifications
-            await connection.query(
+            await pool.query(
                 `INSERT INTO user_notifications (user_id, kind, type, title, message, created_at) 
                  VALUES (?, 'user_notif', 'success', 'Pembayaran Denda Disetujui', ?, CURRENT_TIMESTAMP)`,
                 [payment.user_id, message]
@@ -465,8 +465,8 @@ exports.verifyFinePayment = async (req, res) => {
             
         } else {
             // Reject payment
-            await connection.query(
-                'UPDATE fine_payments SET status = ?, verified_by = ?, verified_at = CURRENT_TIMESTAMP, admin_notes = ? WHERE id = ?',
+            await pool.query(
+                'UPDATE fine_payments SET status = $1, verified_by = $2, verified_at = CURRENT_TIMESTAMP, admin_notes = $3 WHERE id = $4',
                 ['rejected', adminId, notes || 'Pembayaran ditolak', id]
             );
             
@@ -486,21 +486,21 @@ exports.verifyFinePayment = async (req, res) => {
             }
             
             // Save to user_notifications
-            await connection.query(
+            await pool.query(
                 `INSERT INTO user_notifications (user_id, kind, type, title, message, created_at) 
                  VALUES (?, 'user_notif', 'error', 'Pembayaran Denda Ditolak', ?, CURRENT_TIMESTAMP)`,
                 [payment.user_id, message]
             );
         }
         
-        await connection.commit();
+        // No commit
         res.json({ success: true, message: `Pembayaran berhasil ${action === 'approve' ? 'disetujui' : 'ditolak'}.` });
     } catch (e) {
-        if (connection) await connection.rollback();
+        if (connection) // No rollback
         console.error('[ADMIN][VERIFY_FINE_PAYMENT] Error:', e);
         res.status(500).json({ message: 'Gagal memverifikasi pembayaran.' });
     } finally {
-        if (connection) connection.release();
+        if (connection) // No release
     }
 };
 

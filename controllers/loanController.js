@@ -34,12 +34,12 @@ const calculatePenalty = (expectedReturnDate, actualReturnDate) => {
 // Helper: Backfill kodePinjam jika masih NULL / kosong pada baris lama
 async function backfillMissingKodePinjam(connection) {
     // Pastikan kolom ada
-    const [cols] = await connection.query('SHOW COLUMNS FROM loans');
+    const [cols] = await pool.query('SHOW COLUMNS FROM loans');
     const names = cols.map(c => c.Field);
     if (!names.includes('kodePinjam')) return; // tidak ada kolom, abaikan
 
     // Cari baris yang belum punya kodePinjam, tapi hanya untuk status yang sudah disetujui/aktif (bukan pending)
-    const [missing] = await connection.query("SELECT id, loanDate FROM loans WHERE (kodePinjam IS NULL OR kodePinjam = '') AND status <> 'Menunggu Persetujuan' LIMIT 250");
+    const [missing] = await pool.query("SELECT id, loanDate FROM loans WHERE (kodePinjam IS NULL OR kodePinjam = '') AND status <> 'Menunggu Persetujuan' LIMIT 250");
     if (missing.length === 0) return; // nothing to do
 
     for (const row of missing) {
@@ -48,11 +48,11 @@ async function backfillMissingKodePinjam(connection) {
         const rnd = Math.random().toString(36).substring(2,6).toUpperCase();
         const code = `KP-${datePart}-${rnd}`;
         try {
-            await connection.query('UPDATE loans SET kodePinjam = ? WHERE id = ? AND (kodePinjam IS NULL OR kodePinjam = ?) LIMIT 1', [code, row.id, '']);
+            await pool.query('UPDATE loans SET kodePinjam = $1 WHERE id = $2 AND (kodePinjam IS NULL OR kodePinjam = $3) LIMIT 1', [code, row.id, '']);
         } catch (e) {
             // Kemungkinan duplikat, coba format alternatif deterministik
             const fallback = `KP-${String(row.id).padStart(6,'0')}`;
-            try { await connection.query('UPDATE loans SET kodePinjam = ? WHERE id = ? AND (kodePinjam IS NULL OR kodePinjam = ?) LIMIT 1', [fallback, row.id, '']); } catch {}
+            try { await pool.query('UPDATE loans SET kodePinjam = $1 WHERE id = $2 AND (kodePinjam IS NULL OR kodePinjam = $3) LIMIT 1', [fallback, row.id, '']); } catch {}
         }
     }
             // Approval pinjaman dinonaktifkan, tidak ada pinjaman tertunda
@@ -71,22 +71,22 @@ exports.requestLoan = async (req, res) => {
         return res.status(400).json({ message: 'ID Buku diperlukan.' });
     }
 
-    let connection;
+    // PostgreSQL uses pool directly
     try {
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
+        // No getConnection needed
+        // No transactions for now
 
         // Cek 1: Batas Maksimal Pinjaman (misal 3 buku) -- perluas status aktif
-        const [activeLoans] = await connection.query('SELECT COUNT(*) as count FROM loans WHERE user_id = ? AND status IN (?, ?, ?, ?)', [userId, 'Menunggu Persetujuan', 'Disetujui', 'Diambil', 'Sedang Dipinjam']);
+        const [activeLoans] = await pool.query('SELECT COUNT(*) as count FROM loans WHERE user_id = $1 AND status IN ($2, $3, $4, $5)', [userId, 'Menunggu Persetujuan', 'Disetujui', 'Diambil', 'Sedang Dipinjam']);
         if (activeLoans[0].count >= 3) {
-            await connection.rollback();
+            // No rollback
             return res.status(400).json({ message: 'Anda telah mencapai batas maksimal 3 pinjaman aktif/tertunda.' });
         }
         
         // Cek 2: Ketersediaan Stok & Info Buku (lampiran/attachment)
-        const [book] = await connection.query('SELECT title, availableStock, lampiran, attachment_url FROM books WHERE id = ?', [bookId]);
+        const [book] = await pool.query('SELECT title, availableStock, lampiran, attachment_url FROM books WHERE id = $1', [bookId]);
         if (book.length === 0 || book[0].availableStock <= 0) {
-            await connection.rollback();
+            // No rollback
             return res.status(400).json({ message: 'Stok buku tidak tersedia.' });
         }
         
@@ -98,9 +98,9 @@ exports.requestLoan = async (req, res) => {
         // - Untuk buku DIGITAL: user bisa pinjam buku digital meski sudah pinjam buku digital/fisik lain
         if (!isDigitalBook) {
             // Untuk buku fisik, cek apakah user sudah pinjam buku SAMA
-            const [duplicate] = await connection.query('SELECT id FROM loans WHERE user_id = ? AND book_id = ? AND status IN (?, ?, ?, ?)', [userId, bookId, 'Menunggu Persetujuan','Disetujui','Diambil','Sedang Dipinjam']);
-            if (duplicate.length > 0) {
-                await connection.rollback();
+            const duplicateResult = await pool.query('SELECT id FROM loans WHERE user_id = $1 AND book_id = $2 AND status IN ($3, $4, $5, $6)', [userId, bookId, 'Menunggu Persetujuan','Disetujui','Diambil','Sedang Dipinjam']);
+            if (duplicateResult.rows && duplicateResult.rows.length > 0) {
+                // No rollback
                 return res.status(400).json({ message: 'Anda sudah meminjam / mengajukan buku fisik ini. Kembalikan buku terlebih dahulu sebelum meminjam lagi.' });
             }
         }
@@ -126,18 +126,18 @@ exports.requestLoan = async (req, res) => {
         }
 
         // Pastikan kolom tambahan ada (runtime safety jika migrasi belum jalan)
-        const [cols] = await connection.query("SHOW COLUMNS FROM loans");
+        const [cols] = await pool.query("SHOW COLUMNS FROM loans");
         const colNames = cols.map(c => c.Field);
         let hasKode = colNames.includes('kodePinjam');
         let hasPurpose = colNames.includes('purpose');
         if (!hasKode || !hasPurpose) {
             try {
-                if (!hasKode) await connection.query("ALTER TABLE loans ADD COLUMN kodePinjam varchar(40) NULL AFTER status");
-                if (!hasPurpose) await connection.query("ALTER TABLE loans ADD COLUMN purpose text NULL");
-                if (!hasKode) { try { await connection.query('ALTER TABLE loans ADD UNIQUE KEY uniq_kodePinjam (kodePinjam)'); } catch {}
+                if (!hasKode) await pool.query("ALTER TABLE loans ADD COLUMN kodePinjam varchar(40) NULL AFTER status");
+                if (!hasPurpose) await pool.query("ALTER TABLE loans ADD COLUMN purpose text NULL");
+                if (!hasKode) { try { await pool.query('ALTER TABLE loans ADD UNIQUE KEY uniq_kodePinjam (kodePinjam)'); } catch {}
                 }
                 // Refresh daftar kolom setelah ALTER
-                const [cols2] = await connection.query('SHOW COLUMNS FROM loans');
+                const [cols2] = await pool.query('SHOW COLUMNS FROM loans');
                 const fresh = cols2.map(c=>c.Field);
                 hasKode = fresh.includes('kodePinjam');
                 hasPurpose = fresh.includes('purpose');
@@ -161,14 +161,14 @@ exports.requestLoan = async (req, res) => {
         if (hasPurpose) { baseCols.push('purpose'); vals.push(purpose || null); }
         const placeholders = baseCols.map(()=>'?').join(',');
         const insertSQL = `INSERT INTO loans (${baseCols.join(',')}) VALUES (${placeholders})`;
-        const [result] = await connection.query(insertSQL, vals);
+        const result = await pool.query(insertSQL, vals);
 
         // Kurangi Stok Tersedia
-        await connection.query('UPDATE books SET availableStock = availableStock - 1 WHERE id = ?', [bookId]);
+        await pool.query('UPDATE books SET availableStock = availableStock - 1 WHERE id = $1', [bookId]);
 
-        await connection.commit();
+        // No commit
         const loanPayload = {
-            id: result.insertId,
+            id: result.rows[0]?.id,
             bookTitle: book[0].title,
             loanDate,
             expectedReturnDate,
@@ -210,11 +210,11 @@ exports.requestLoan = async (req, res) => {
         });
 
     } catch (error) {
-        if (connection) await connection.rollback();
+        if (connection) // No rollback
         console.error('❌ Error requesting loan:', error);
         res.status(500).json({ message: 'Gagal memproses permintaan pinjaman.' });
     } finally {
-        if (connection) connection.release();
+        if (connection) // No release
     }
 };
 
@@ -257,8 +257,8 @@ exports.getUserLoans = async (req, res) => {
     const pool = getDBPool(req);
     const userId = req.user.id;
     try {
-        const connection = await pool.getConnection();
-        const [cols] = await connection.query('SHOW COLUMNS FROM loans');
+        const // No getConnection needed
+        const [cols] = await pool.query('SHOW COLUMNS FROM loans');
         const names = cols.map(c => c.Field);
         const selectParts = [
             'l.id','l.loanDate','l.expectedReturnDate AS returnDate','l.actualReturnDate','l.status','l.fineAmount','l.returnDecision'
@@ -275,7 +275,7 @@ exports.getUserLoans = async (req, res) => {
         try { await backfillMissingKodePinjam(connection); } catch (bfErr) { console.warn('[LOAN][BACKFILL] gagal:', bfErr.message); }
         
         const query = `SELECT ${selectParts.join(', ')} FROM loans l JOIN books b ON l.book_id = b.id WHERE l.user_id = ? ORDER BY l.loanDate DESC`;
-        const [rows] = await connection.query(query, [userId]);
+        const [rows] = await pool.query(query, [userId]);
         
         // Auto-cancel expired QR codes
         const now = new Date();
@@ -285,13 +285,13 @@ exports.getUserLoans = async (req, res) => {
                 const expiry = loanTime + 24 * 60 * 60 * 1000;
                 if (now.getTime() > expiry) {
                     // QR expired, auto-cancel
-                    await connection.query(
-                        'UPDATE loans SET status = ? WHERE id = ?',
+                    await pool.query(
+                        'UPDATE loans SET status = $1 WHERE id = $2',
                         ['Ditolak', loan.id]
                     );
                     // Kembalikan stok
-                    await connection.query(
-                        'UPDATE books SET availableStock = availableStock + 1 WHERE id = (SELECT book_id FROM loans WHERE id = ?)',
+                    await pool.query(
+                        'UPDATE books SET availableStock = availableStock + 1 WHERE id = (SELECT book_id FROM loans WHERE id = $1)',
                         [loan.id]
                     );
                     console.log(`[AUTO-CANCEL] Loan ID ${loan.id} expired and auto-canceled`);
@@ -300,7 +300,7 @@ exports.getUserLoans = async (req, res) => {
             }
         }
         
-        connection.release();
+        // No release
         res.json(rows);
     } catch (error) {
         console.error('❌ Error fetching user loans:', error);
@@ -314,19 +314,19 @@ exports.cancelLoan = async (req, res) => {
     const userId = req.user.id;
     const loanId = req.params.id;
 
-    let connection;
+    // PostgreSQL uses pool directly
     try {
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
+        // No getConnection needed
+        // No transactions for now
 
         // Cek kepemilikan dan status
-        const [loans] = await connection.query(
-            'SELECT status, book_id FROM loans WHERE id = ? AND user_id = ?',
+        const [loans] = await pool.query(
+            'SELECT status, book_id FROM loans WHERE id = $1 AND user_id = $2',
             [loanId, userId]
         );
 
         if (loans.length === 0) {
-            await connection.rollback();
+            // No rollback
             return res.status(404).json({ message: 'Pinjaman tidak ditemukan atau bukan milik Anda.' });
         }
 
@@ -334,30 +334,30 @@ exports.cancelLoan = async (req, res) => {
         
         // Hanya bisa cancel jika status Menunggu Persetujuan atau Disetujui
         if (loan.status !== 'Menunggu Persetujuan' && loan.status !== 'Disetujui') {
-            await connection.rollback();
+            // No rollback
             return res.status(400).json({ message: 'Peminjaman tidak dapat dibatalkan pada status ini.' });
         }
 
         // Update status menjadi Dibatalkan User (cancelled by user)
-        await connection.query(
-            'UPDATE loans SET status = ? WHERE id = ?',
+        await pool.query(
+            'UPDATE loans SET status = $1 WHERE id = $2',
             ['Dibatalkan User', loanId]
         );
 
         // Kembalikan stok buku
-        await connection.query(
-            'UPDATE books SET availableStock = availableStock + 1 WHERE id = ?',
+        await pool.query(
+            'UPDATE books SET availableStock = availableStock + 1 WHERE id = $1',
             [loan.book_id]
         );
 
-        await connection.commit();
+        // No commit
         res.json({ success: true, message: 'Peminjaman berhasil dibatalkan.' });
     } catch (error) {
-        if (connection) await connection.rollback();
+        if (connection) // No rollback
         console.error('❌ Error canceling loan:', error);
         res.status(500).json({ message: 'Gagal membatalkan peminjaman.' });
     } finally {
-        if (connection) connection.release();
+        if (connection) // No release
     }
 };
 
@@ -415,12 +415,12 @@ exports.markAsReadyToReturn = async (req, res) => {
         }
 
         // Update status menjadi Siap Dikembalikan + set readyReturnDate + proof + metadata
-        const [result] = await pool.query(
+        const result = await pool.query(
             "UPDATE loans SET status = $1, readyReturnDate = $2, returnProofUrl = $3, returnProofMetadata = $4 WHERE id = $5 AND user_id = $6",
             ['Siap Dikembalikan', new Date(), proofUrl, metadata ? JSON.stringify(metadata) : null, loanId, userId]
         );
 
-        if (result.affectedRows > 0) {
+        if (result.rowCount > 0) {
             res.json({ success: true, message: 'Buku ditandai Siap Dikembalikan. Menunggu verifikasi Admin.', proofUrl });
         } else {
             res.status(500).json({ message: 'Gagal memperbarui status pinjaman.' });
@@ -560,11 +560,11 @@ exports.approveLoan = async (req, res) => {
             try { await pool.query('UPDATE loans SET kodePinjam=$1 WHERE id=$2',[kode, loanId]); } catch {}
         }
         // Set status Disetujui, set approvedAt, jangan set loanDate di tahap ini
-        const [result] = await pool.query(
+        const result = await pool.query(
             "UPDATE loans SET status = 'Disetujui', expectedReturnDate = $1, approvedAt = $2, userNotified = 0 WHERE id = $3 AND status = 'Menunggu Persetujuan'",
             [expected, now, loanId]
         );
-        if (result.affectedRows === 0) {
+        if (result.rowCount === 0) {
             const [exist] = await pool.query('SELECT status FROM loans WHERE id = $1',[loanId]);
             if (exist.length) return res.status(400).json({ message: `Pinjaman sudah diproses (Status: ${exist[0].status}).` });
             return res.status(404).json({ message: 'Pinjaman tidak ditemukan.' });
@@ -722,40 +722,40 @@ exports.rejectLoan = async (req, res) => {
         return res.status(400).json({ message: 'ID Pinjaman diperlukan.' });
     }
 
-    let connection;
+    // PostgreSQL uses pool directly
     try {
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
+        // No getConnection needed
+        // No transactions for now
 
         // Ambil info buku & user sebelum update status
-        const [loanInfo] = await connection.query(`
+        const [loanInfo] = await pool.query(`
             SELECT l.book_id, b.title 
             FROM loans l JOIN books b ON l.book_id = b.id 
             WHERE l.id = ? AND l.status = 'Menunggu Persetujuan'`, [loanId]);
 
         if (loanInfo.length === 0) {
-            await connection.rollback();
+            // No rollback
             return res.status(404).json({ message: 'Pinjaman tertunda tidak ditemukan atau sudah diproses.' });
         }
 
         // 1. Update status pinjaman
-        const [result] = await connection.query(
+        const result = await pool.query(
             "UPDATE loans SET status = ?, rejectionDate = ?, rejectionNotified = 0 WHERE id = ? AND status = 'Menunggu Persetujuan'",
             ['Ditolak', new Date(), loanId]
         );
         
         // 2. Tambah kembali stok buku
-        await connection.query('UPDATE books SET availableStock = availableStock + 1 WHERE id = ?', [loanInfo[0].book_id]);
+        await pool.query('UPDATE books SET availableStock = availableStock + 1 WHERE id = $1', [loanInfo[0].book_id]);
 
-        await connection.commit();
+        // No commit
         res.json({ success: true, message: `Permintaan pinjaman buku "${loanInfo[0].title}" berhasil ditolak.` });
 
     } catch (error) {
-        if (connection) await connection.rollback();
+        if (connection) // No rollback
         console.error('❌ Error rejecting loan:', error);
         res.status(500).json({ message: 'Gagal menolak pinjaman.' });
     } finally {
-        if (connection) connection.release();
+        if (connection) // No release
     }
 };
 
@@ -769,20 +769,20 @@ exports.processReturn = async (req, res) => {
         return res.status(400).json({ message: 'ID Pinjaman diperlukan.' });
     }
 
-    let connection;
+    // PostgreSQL uses pool directly
     try {
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
+        // No getConnection needed
+        // No transactions for now
         const actualReturnDate = new Date();
 
         // 1. Ambil data pinjaman untuk perhitungan denda otomatis
-        const [loanData] = await connection.query(
-            "SELECT l.expectedReturnDate, l.book_id, l.user_id, u.denda, b.title FROM loans l JOIN users u ON l.user_id = u.id JOIN books b ON l.book_id = b.id WHERE l.id = ? AND l.status IN (?, ?, ?)",
+        const [loanData] = await pool.query(
+            "SELECT l.expectedReturnDate, l.book_id, l.user_id, u.denda, b.title FROM loans l JOIN users u ON l.user_id = u.id JOIN books b ON l.book_id = b.id WHERE l.id = $1 AND l.status IN ($2, $3, $4)",
             [loanId, 'Sedang Dipinjam', 'Terlambat', 'Siap Dikembalikan']
         );
 
         if (loanData.length === 0) {
-            await connection.rollback();
+            // No rollback
             return res.status(404).json({ message: 'Pinjaman tidak ditemukan atau sudah dikembalikan.' });
         }
 
@@ -795,7 +795,7 @@ exports.processReturn = async (req, res) => {
         const totalFine = autoPenalty + Number(manualFineAmount); 
 
         // 2. Update status pinjaman menjadi 'Dikembalikan', simpan denda & tanggal pengembalian
-        await connection.query(
+        await pool.query(
             "UPDATE loans SET status = ?, actualReturnDate = ?, fineAmount = ?, finePaid = ?, returnNotified = 0, returnDecision = 'approved', fineReason = ? WHERE id = ?",
             ['Dikembalikan', actualReturnDate, totalFine, 0, fineReason, loanId] // finePaid 0 karena belum dibayar
         );
@@ -803,14 +803,14 @@ exports.processReturn = async (req, res) => {
         // 3. Tambahkan total denda ke akun user
         let totalNewFine = 0;
        if (totalFine > 0) {
-           await connection.query('UPDATE users SET denda = denda + ?, denda_unpaid = denda_unpaid + ? WHERE id = ?', [totalFine, totalFine, user_id]);
+           await pool.query('UPDATE users SET denda = denda + $1, denda_unpaid = denda_unpaid + $2 WHERE id = $3', [totalFine, totalFine, user_id]);
            totalNewFine = totalFine;
        }
 
         // 4. Tambah stok buku kembali
-        await connection.query('UPDATE books SET availableStock = availableStock + 1 WHERE id = ?', [book_id]);
+        await pool.query('UPDATE books SET availableStock = availableStock + 1 WHERE id = $1', [book_id]);
 
-        await connection.commit();
+        // No commit
         
         // Berikan detail denda ke admin
         let penaltyMessage = totalNewFine > 0 ? 
@@ -861,11 +861,11 @@ exports.processReturn = async (req, res) => {
         });
 
     } catch (error) {
-        if (connection) await connection.rollback();
+        if (connection) // No rollback
         console.error('❌ Error processing return:', error);
         res.status(500).json({ message: 'Gagal memproses pengembalian buku.' });
     } finally {
-        if (connection) connection.release();
+        if (connection) // No release
     }
 };
 
@@ -876,22 +876,22 @@ exports.rejectReturnProof = async (req, res) => {
     const { loanId, reason = '', fineAmount = 0 } = req.body; // Admin bisa kasih alasan + denda
     if (!loanId) return res.status(400).json({ message: 'ID Pinjaman diperlukan.' });
 
-    let connection;
+    // PostgreSQL uses pool directly
     try {
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
+        // No getConnection needed
+        // No transactions for now
 
-        const [rows] = await connection.query(
-            `SELECT id, expectedReturnDate, status FROM loans WHERE id=? FOR UPDATE`,
+        const [rows] = await pool.query(
+            `SELECT id, expectedReturnDate, status FROM loans WHERE id=$1 FOR UPDATE`,
             [loanId]
         );
         if (!rows.length) {
-            await connection.rollback();
+            // No rollback
             return res.status(404).json({ message: 'Pinjaman tidak ditemukan.' });
         }
         const loan = rows[0];
         if (loan.status !== 'Siap Dikembalikan') {
-            await connection.rollback();
+            // No rollback
             return res.status(400).json({ message: `Status sekarang '${loan.status}'. Hanya 'Siap Dikembalikan' yang bisa ditolak bukti pengembaliannya.` });
         }
 
@@ -900,7 +900,7 @@ exports.rejectReturnProof = async (req, res) => {
         const due = loan.expectedReturnDate ? new Date(loan.expectedReturnDate) : null;
         const nextStatus = (due && now > due) ? 'Terlambat' : 'Sedang Dipinjam';
 
-        await connection.query(
+        await pool.query(
             `UPDATE loans SET status=?, returnProofUrl=NULL, readyReturnDate=NULL, returnNotified = 0, returnDecision = 'rejected', rejectionReason=?, rejectionDate=CURRENT_TIMESTAMP WHERE id=?`,
             [nextStatus, reason, loanId]
         );
@@ -908,23 +908,23 @@ exports.rejectReturnProof = async (req, res) => {
         // Tambah denda jika admin kasih denda
         let user_id = loan.user_id;
         if (fineAmount > 0) {
-            await connection.query(
-                `UPDATE loans SET fineAmount = fineAmount + ? WHERE id=?`,
+            await pool.query(
+                `UPDATE loans SET fineAmount = fineAmount + $1 WHERE id=$2`,
                 [fineAmount, loanId]
             );
-            await connection.query(
-                `UPDATE users SET denda = denda + ?, denda_unpaid = denda_unpaid + ? WHERE id = ?`,
+            await pool.query(
+                `UPDATE users SET denda = denda + $1, denda_unpaid = denda_unpaid + $2 WHERE id = $3`,
                 [fineAmount, fineAmount, user_id]
             );
         }
 
-        await connection.commit();
+        // No commit
 
         // --- TRIGGER SOCKET.IO NOTIFIKASI USER: Bukti pengembalian ditolak ---
         try {
             // Ambil user_id dan judul buku
-            const [loanRows] = await connection.query(
-                `SELECT l.user_id, b.title FROM loans l JOIN books b ON l.book_id = b.id WHERE l.id = ?`,
+            const [loanRows] = await pool.query(
+                `SELECT l.user_id, b.title FROM loans l JOIN books b ON l.book_id = b.id WHERE l.id = $1`,
                 [loanId]
             );
             if (loanRows.length) {
@@ -957,11 +957,11 @@ exports.rejectReturnProof = async (req, res) => {
 
         res.json({ success:true, message:'Bukti pengembalian ditolak. Minta pengguna upload ulang.', nextStatus });
     } catch (e){
-        if (connection) await connection.rollback();
+        if (connection) // No rollback
         console.error('❌ Error rejectReturnProof:', e);
         res.status(500).json({ message: 'Gagal menolak bukti pengembalian.' });
     } finally {
-        if (connection) connection.release();
+        if (connection) // No release
     }
 };
 
@@ -1310,15 +1310,15 @@ exports.submitFinePayment = async (req, res) => {
         return res.status(400).json({ message: 'Data pembayaran tidak lengkap.' });
     }
     
-    let connection;
+    // PostgreSQL uses pool directly
     try {
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
+        // No getConnection needed
+        // No transactions for now
         
         // Get user info
-        const [users] = await connection.query('SELECT username, npm FROM users WHERE id = ? LIMIT 1', [userId]);
+        const [users] = await pool.query('SELECT username, npm FROM users WHERE id = $1 LIMIT 1', [userId]);
         if (!users.length) {
-            await connection.rollback();
+            // No rollback
             return res.status(404).json({ message: 'User tidak ditemukan.' });
         }
         
@@ -1328,26 +1328,26 @@ exports.submitFinePayment = async (req, res) => {
         // Handle file upload untuk bank_transfer
         if (method === 'bank_transfer') {
             if (!accountName) {
-                await connection.rollback();
+                // No rollback
                 return res.status(400).json({ message: 'Nama rekening wajib diisi untuk transfer bank.' });
             }
             
             if (req.file) {
                 proofUrl = `/uploads/fine-proofs/${req.file.filename}`;
             } else {
-                await connection.rollback();
+                // No rollback
                 return res.status(400).json({ message: 'Bukti transfer wajib diupload.' });
             }
         }
         
         // Insert fine payment record
-        const [result] = await connection.query(
+        const result = await pool.query(
             `INSERT INTO fine_payments (user_id, username, npm, method, amount_total, proof_url, loan_ids, status, account_name, bank_name, created_at) 
              VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, CURRENT_TIMESTAMP)`,
             [userId, user.username, user.npm, method, totalAmount, proofUrl, JSON.stringify(loanIds), accountName || null, bankName || null]
         );
         
-        await connection.commit();
+        // No commit
         
         // Send notification to user
         const message = method === 'cash' 
@@ -1363,7 +1363,7 @@ exports.submitFinePayment = async (req, res) => {
                 io.to(`user_${userId}`).emit('notification', {
                     message,
                     type: 'info',
-                    paymentId: result.insertId
+                    paymentId: result.rows[0]?.id
                 });
             }
         } catch (err) {
@@ -1376,7 +1376,7 @@ exports.submitFinePayment = async (req, res) => {
                 title: 'Pembayaran Denda',
                 message,
                 tag: 'fine-payment',
-                data: { paymentId: result.insertId, type: 'payment' }
+                data: { paymentId: result.rows[0]?.id, type: 'payment' }
             });
         } catch (err) {
             console.warn('[PUSH] Gagal kirim push:', err.message);
@@ -1385,30 +1385,30 @@ exports.submitFinePayment = async (req, res) => {
         res.json({ 
             success: true, 
             message: 'Pembayaran berhasil diajukan.', 
-            paymentId: result.insertId 
+            paymentId: result.rows[0]?.id 
         });
     } catch (e) {
-        if (connection) await connection.rollback();
+        if (connection) // No rollback
         console.error('❌ Error submitting fine payment:', e);
         res.status(500).json({ message: 'Gagal mengajukan pembayaran.' });
     } finally {
-        if (connection) connection.release();
+        if (connection) // No release
     }
 };
 
 // Get payment history for the logged-in user
 exports.getPaymentHistory = async (req, res) => {
-    let connection;
+    // PostgreSQL uses pool directly
     try {
         const userId = req.user.id; // From checkAuth middleware
 
         connection = await db.promise().getConnection();
         
-        const [payments] = await connection.query(
+        const [payments] = await pool.query(
             `SELECT id, method, amount_total, status, proof_url, account_name, bank_name, 
                     admin_notes, verified_by, verified_at, created_at, updated_at
              FROM fine_payments 
-             WHERE user_id = ?
+             WHERE user_id = $1
              ORDER BY created_at DESC`,
             [userId]
         );
@@ -1418,7 +1418,7 @@ exports.getPaymentHistory = async (req, res) => {
         console.error('❌ [getPaymentHistory] Error:', error);
         res.status(500).json({ message: 'Gagal memuat riwayat pembayaran', error: error.message });
     } finally {
-        if (connection) connection.release();
+        if (connection) // No release
     }
 };
 

@@ -42,16 +42,19 @@ exports.getAllBooks = async (req, res) => {
         (SELECT COUNT(*) FROM loans l WHERE l.book_id = b.id) AS borrowCount
         FROM books b WHERE 1=1`;
     let params = [];
+    let paramCount = 1;
 
     if (search) {
-        baseSelect += ' AND (b.title LIKE ? OR b.author LIKE ? OR b.kodeBuku LIKE ?)';
+        baseSelect += ` AND (b.title LIKE $${paramCount} OR b.author LIKE $${paramCount+1} OR b.kodeBuku LIKE $${paramCount+2})`;
         const searchTerm = `%${search}%`;
         params.push(searchTerm, searchTerm, searchTerm);
+        paramCount += 3;
     }
     
     if (category) {
-        baseSelect += ' AND b.category = ?';
+        baseSelect += ` AND b.category = $${paramCount}`;
         params.push(category);
+        paramCount++;
     }
 
     // Sorting
@@ -121,19 +124,19 @@ exports.createBook = async (req, res) => {
 
     try {
         // Cek duplikasi Kode Buku
-        const [duplicate] = await pool.query('SELECT id FROM books WHERE kodeBuku = $1', [kodeBuku]);
-        if (duplicate.length > 0) {
+        const duplicateResult = await pool.query('SELECT id FROM books WHERE kodeBuku = $1', [kodeBuku]);
+        if (duplicateResult.rows && duplicateResult.rows.length > 0) {
             return res.status(400).json({ message: 'Kode Buku sudah digunakan.' });
         }
 
         // Dynamically check which columns exist in the books table
-        const [columns] = await pool.query(`
+        const columnsResult = await pool.query(`
             SELECT COLUMN_NAME 
             FROM INFORMATION_SCHEMA.COLUMNS 
-            WHERE TABLE_SCHEMA = DATABASE() 
+            WHERE TABLE_SCHEMA = 'public' 
             AND TABLE_NAME = 'books'
         `);
-        const existingColumns = columns.map(col => col.COLUMN_NAME);
+        const existingColumns = columnsResult.rows.map(col => col.column_name);
         
         // Build dynamic insert query
         const columnsToInsert = ['title', 'kodeBuku', 'author', 'publisher', 'publicationYear', 'totalStock', 'availableStock', 'category', 'image_url', 'description', 'location'];
@@ -173,7 +176,7 @@ exports.createBook = async (req, res) => {
         console.log('📊 [CREATE BOOK] SQL:', insertQuery);
         console.log('📊 [CREATE BOOK] Values:', valuesToInsert);
 
-        const [result] = await pool.query(insertQuery, valuesToInsert);
+        const result = await pool.query(insertQuery, valuesToInsert);
 
         // --- TRIGGER SOCKET.IO NOTIF BUKU BARU ---
         try {
@@ -188,11 +191,11 @@ exports.createBook = async (req, res) => {
             console.warn('[SOCKET.IO][NOTIF] Gagal kirim notif buku baru:', err.message);
         }
 
-        console.log('✅ [CREATE BOOK] Success! Book ID:', result.insertId);
+        console.log('✅ [CREATE BOOK] Success! Book ID:', result.rows[0]?.id);
         res.status(201).json({ 
             success: true, 
             message: 'Buku berhasil ditambahkan.', 
-            bookId: result.insertId 
+            bookId: result.rows[0]?.id 
         });
     } catch (error) {
         console.error('❌ [CREATE BOOK] Error:', error);
@@ -222,32 +225,32 @@ exports.updateBook = async (req, res) => {
         return res.status(400).json({ message: 'Semua field wajib diisi, termasuk Kode Buku dan Lokasi.' });
     }
     
-    let connection;
+    // PostgreSQL uses pool directly
     try {
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
+        // No getConnection needed
+        // No transactions for now
 
         // 1. Cek duplikasi Kode Buku (kecuali untuk buku ini sendiri)
-        const [duplicate] = await connection.query('SELECT id FROM books WHERE kodeBuku = $2 AND id != $3', [kodeBuku, bookId]);
-        if (duplicate.length > 0) {
-            await connection.rollback();
+        const duplicateResult = await pool.query('SELECT id FROM books WHERE kodeBuku = $2 AND id != $3', [kodeBuku, bookId]);
+        if (duplicateResult.rows && duplicateResult.rows.length > 0) {
+            // No rollback
             return res.status(400).json({ message: 'Kode Buku sudah digunakan oleh buku lain.' });
         }
         
         // 2. Ambil data lama
-        const [oldBook] = await connection.query('SELECT totalStock, availableStock, image_url, attachment_url FROM books WHERE id = ?', [bookId]);
-        if (oldBook.length === 0) {
-            await connection.rollback();
+        const oldBookResult = await pool.query('SELECT totalStock, availableStock, image_url, attachment_url FROM books WHERE id = $1', [bookId]);
+        if (!oldBookResult.rows || oldBookResult.rows.length === 0) {
+            // No rollback
             return res.status(404).json({ message: 'Buku tidak ditemukan.' });
         }
-        const { totalStock: oldTotalStock, availableStock: oldAvailableStock, image_url: oldImageUrl, attachment_url: oldAttachmentUrl } = oldBook[0];
+        const { totalStock: oldTotalStock, availableStock: oldAvailableStock, image_url: oldImageUrl, attachment_url: oldAttachmentUrl } = oldBookResult.rows[0];
         
         const newTotalStock = parseInt(totalStock);
         const stockDifference = newTotalStock - oldTotalStock;
         const newAvailableStock = oldAvailableStock + stockDifference;
 
         if (newAvailableStock < 0) {
-            await connection.rollback();
+            // No rollback
             return res.status(400).json({ message: 'Stok tersedia tidak boleh negatif. Pastikan total stok baru minimal sama dengan jumlah buku yang sedang dipinjam.' });
         }
         
@@ -256,13 +259,13 @@ exports.updateBook = async (req, res) => {
         const finalAttachmentUrl = newAttachmentUrl || oldAttachmentUrl;
         
         // 3. Dynamically check which columns exist in the books table
-        const [columns] = await connection.query(`
+        const columnsResult = await pool.query(`
             SELECT COLUMN_NAME 
             FROM INFORMATION_SCHEMA.COLUMNS 
-            WHERE TABLE_SCHEMA = DATABASE() 
+            WHERE TABLE_SCHEMA = 'public' 
             AND TABLE_NAME = 'books'
         `);
-        const existingColumns = columns.map(col => col.COLUMN_NAME);
+        const existingColumns = columnsResult.rows.map(col => col.column_name);
         
         // Build dynamic update query
         const updates = [
@@ -278,31 +281,31 @@ exports.updateBook = async (req, res) => {
         
         // Add optional columns if they exist
         if (existingColumns.includes('programStudi')) {
-            updates.push('programStudi = ?');
+            updates.push('programStudi = $PH');
             values.push(programStudi || null);
         }
         if (existingColumns.includes('bahasa')) {
-            updates.push('bahasa = ?');
+            updates.push('bahasa = $PH');
             values.push(bahasa || 'Bahasa Indonesia');
         }
         if (existingColumns.includes('jenisKoleksi')) {
-            updates.push('jenisKoleksi = ?');
+            updates.push('jenisKoleksi = $PH');
             values.push(jenisKoleksi || 'Buku Asli');
         }
         if (existingColumns.includes('lampiran')) {
-            updates.push('lampiran = ?');
+            updates.push('lampiran = $PH');
             values.push(lampiran || 'Tidak Ada');
         }
         if (existingColumns.includes('attachment_url')) {
-            updates.push('attachment_url = ?');
+            updates.push('attachment_url = $PH');
             values.push(finalAttachmentUrl);
         }
         if (existingColumns.includes('pemusatanMateri')) {
-            updates.push('pemusatanMateri = ?');
+            updates.push('pemusatanMateri = $PH');
             values.push(pemusatanMateri || null);
         }
         if (existingColumns.includes('pages')) {
-            updates.push('pages = ?');
+            updates.push('pages = $PH');
             values.push(pages || null);
         }
         
@@ -312,18 +315,18 @@ exports.updateBook = async (req, res) => {
         console.log('📊 [UPDATE BOOK] SQL:', updateQuery);
         console.log('📊 [UPDATE BOOK] Values:', values);
 
-        const [result] = await connection.query(updateQuery, values);
+        const result = await pool.query(updateQuery, values);
 
-        await connection.commit();
+        // No commit
         console.log('✅ [UPDATE BOOK] Success! Book ID:', bookId);
         res.json({ success: true, message: 'Buku berhasil diperbarui.' });
 
     } catch (error) {
-        if (connection) await connection.rollback();
+        if (connection) // No rollback
         console.error('❌ [UPDATE BOOK] Error:', error);
         res.status(500).json({ message: 'Gagal memperbarui buku.', error: error.message });
     } finally {
-        if (connection) connection.release();
+        if (connection) // No release
     }
 };
 
@@ -345,9 +348,9 @@ exports.deleteBook = async (req, res) => {
         const [book] = await pool.query('SELECT image_url FROM books WHERE id = $1', [bookId]);
         
         // 3. Hapus data buku
-        const [result] = await pool.query('DELETE FROM books WHERE id = $1', [bookId]);
+        const result = await pool.query('DELETE FROM books WHERE id = $1', [bookId]);
 
-        if (result.affectedRows === 0) {
+        if (result.rowCount === 0) {
             return res.status(404).json({ message: 'Buku tidak ditemukan.' });
         }
         

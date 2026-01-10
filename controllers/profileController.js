@@ -1,3 +1,5 @@
+const getDBPool = (req) => req.app.get('dbPool');
+
 // File: controllers/profileController.js
 const fs = require('fs/promises');
 const path = require('path');
@@ -28,10 +30,11 @@ exports.updateBiodata = async (req, res) => {
 
     try {
         console.log('[PROFILE][updateBiodata] userId=%s npm=%s body=%o', id, npm, { username, fakultas, prodi, angkatan });
-        const [result] = await pool.query(
+        const _pgResult = await pool.query(
             'UPDATE users SET username = $1, fakultas = $2, prodi = $3, angkatan = $4 WHERE npm = $5',
             [username, fakultas, prodi, angkatan, npm]
         );
+        const result = _pgResult.rows;
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ success: false, message: 'Pengguna tidak ditemukan.' });
@@ -91,7 +94,8 @@ exports.deletePhoto = async (req, res) => {
         const [oldRows] = await pool.query('SELECT profile_photo_url FROM users WHERE npm = $1', [npm]);
         const oldPhotoUrl = oldRows[0]?.profile_photo_url;
         
-        const [result] = await pool.query('UPDATE users SET profile_photo_url = NULL WHERE npm = $1', [npm]);
+        const _pgResult = await pool.query('UPDATE users SET profile_photo_url = NULL WHERE npm = $1', [npm]);
+        const result = _pgResult.rows;
 
         if (result.affectedRows > 0 && oldPhotoUrl) {
             const oldPhotoPath = path.join(__dirname, '..', oldPhotoUrl);
