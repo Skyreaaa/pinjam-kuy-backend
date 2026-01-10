@@ -269,47 +269,12 @@ async function connectDB() {
         client.release();
         
         console.log('✅ Database terhubung!');
-        return pool;
-        } catch (err) {
-            if (err && err.code === 'ER_BAD_DB_ERROR') {
-                console.warn(`⚠️  Database '${dbName}' belum ada. Membuat dan mengimpor schema...`);
-                // Buat koneksi tanpa database untuk create DB
-                const tmp = await mysql.createConnection(baseConfig);
-                await tmp.query(`CREATE DATABASE \`${dbName}\``);
-                console.log(`✅ Database '${dbName}' dibuat.`);
-                await tmp.end();
-                // Re-init pool dengan database
-                pool = mysql.createPool({ ...baseConfig, database: dbName });
-                await importSchema(pool);
-            } else {
-                throw err;
-            }
-        }
-
-        // Setelah pool siap, cek apakah tabel inti ada. Jika tidak, impor schema.
-    await ensureCoreTables(pool);
-    // Diagnostik: tampilkan tabel yang ada setelah ensureCoreTables
-    try {
-      const [tblRows] = await pool.query('SHOW TABLES');
-      console.log('[DB] Daftar tabel setelah ensureCoreTables:', tblRows.map(r=>Object.values(r)[0]));
-    } catch(diagErr){
-      console.warn('[DB] Gagal SHOW TABLES untuk diagnosa:', diagErr.message);
-    }
-
-    // Jalankan migrasi tambahan setelah core tables dipastikan ada
-    await ensureLoanMigrations(pool);
-    await ensureBooksDescriptionColumn(pool);
-    await ensureLoanKodePinjam(pool);
-    await ensureLoanStatusEnum(pool);
-    await normalizeLoanStatuses(pool);
-    await ensureLoanReturnColumns(pool);
-    await ensureUserUnpaidFineColumn(pool); // NEW: pastikan kolom denda_unpaid ada
-    await ensureLoanFinePaymentColumns(pool); // NEW: kolom status pembayaran denda
-
+        
         // Simpan pool di app untuk diakses oleh routes (WAJIB)
         app.set('dbPool', pool);
         console.log('✅ Database terhubung dengan sukses!');
-        console.log('[DEBUG] connectDB() selesai tanpa error. Menunggu seed data...');
+        console.log('[DEBUG] connectDB() selesai tanpa error.');
+        return pool;
     } catch (error) {
         console.error('❌ Gagal terhubung ke database:', error.message);
         console.error('[DEBUG] Full error:', error);
