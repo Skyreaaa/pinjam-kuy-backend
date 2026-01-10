@@ -475,7 +475,7 @@ exports.getReturnsForReview = async (req, res) => {
             console.warn('Failed to check returnProofMetadata column:', e.message);
         }
 
-        const metadataField = hasMetadataCol ? ', l.returnProofMetadata' : '';
+        const metadataField = hasMetadataCol $1 ', l.returnProofMetadata' : '';
         
         const query = `
             SELECT 
@@ -507,7 +507,7 @@ exports.getReturnsForReview = async (req, res) => {
             if (loan.returnProofMetadata) {
                 try {
                     parsedMetadata = typeof loan.returnProofMetadata === 'string' 
-                        ? JSON.parse(loan.returnProofMetadata) 
+                        $2 JSON.parse(loan.returnProofMetadata) 
                         : loan.returnProofMetadata;
                 } catch (e) {
                     console.warn('Failed to parse metadata for loan', loan.loanId, e.message);
@@ -1055,7 +1055,7 @@ exports.getNotificationHistory = async (req, res) => {
             console.warn('Failed to check returnProofMetadata column:', e.message);
         }
 
-        const metadataField = hasMetadataCol ? ', l.returnProofMetadata' : '';
+        const metadataField = hasMetadataCol $1 ', l.returnProofMetadata' : '';
 
         const _pgResult = await pool.query(
                         `SELECT 
@@ -1135,16 +1135,16 @@ exports.getHistory = async (req, res) => {
             'l.id',
             'l.loanDate',
             'l.expectedReturnDate',
-            hasReturnProofUrl ? 'l.returnProofUrl' : "'' AS returnProofUrl",
+            hasReturnProofUrl $1 'l.returnProofUrl' : "'' AS returnProofUrl",
             'l.status',
-            hasFineAmount ? 'l.fineAmount' : '0 AS fineAmount',
-            hasFinePaid ? 'l.finePaid' : '0 AS finePaid',
-            hasReadyReturnDate ? 'l.readyReturnDate' : "'' AS readyReturnDate",
-            hasApprovedAt ? 'l.approvedAt' : "'' AS approvedAt",
-            hasReturnDecision ? 'l.returnDecision' : "'' AS returnDecision",
-            hasRejectionReason ? 'l.rejectionReason' : "'' AS rejectionReason",
-            hasCreatedAt ? 'l.createdAt' : "'' AS createdAt",
-            hasMetadataCol ? 'l.returnProofMetadata' : "'' AS returnProofMetadata",
+            hasFineAmount $2 'l.fineAmount' : '0 AS fineAmount',
+            hasFinePaid $3 'l.finePaid' : '0 AS finePaid',
+            hasReadyReturnDate $4 'l.readyReturnDate' : "'' AS readyReturnDate",
+            hasApprovedAt $5 'l.approvedAt' : "'' AS approvedAt",
+            hasReturnDecision $6 'l.returnDecision' : "'' AS returnDecision",
+            hasRejectionReason $7 'l.rejectionReason' : "'' AS rejectionReason",
+            hasCreatedAt $8 'l.createdAt' : "'' AS createdAt",
+            hasMetadataCol $9 'l.returnProofMetadata' : "'' AS returnProofMetadata",
             'b.title', 'b.kodeBuku', 'b.author',
             'u.username', 'u.npm', 'u.fakultas'
         ];

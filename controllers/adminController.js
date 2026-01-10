@@ -1,33 +1,35 @@
+const getDBPool = (req) => req.app.get('dbPool');
+
 exports.getStats = async (req, res) => {
     const pool = getDBPool(req);
     try {
-        const [[{ totalUsers }]] = await pool.query('SELECT COUNT(*) as totalUsers FROM users');
-        const [[{ totalBooks }]] = await pool.query('SELECT COUNT(*) as totalBooks FROM books');
-        const [[{ totalLoans }]] = await pool.query('SELECT COUNT(*) as totalLoans FROM loans');
-        const [[{ totalReturns }]] = await pool.query("SELECT COUNT(*) as totalReturns FROM loans WHERE status='Dikembalikan'");
-        const [[{ totalFines }]] = await pool.query('SELECT SUM(fineAmount) as totalFines FROM loans WHERE fineAmount > 0');
+        const result1 = await pool.query('SELECT COUNT(*) as totalUsers FROM users');
+        const totalUsers = result1.rows[0]?.totalusers || 0;
+        
+        const result2 = await pool.query('SELECT COUNT(*) as totalBooks FROM books');
+        const totalBooks = result2.rows[0]?.totalbooks || 0;
+        
+        const result3 = await pool.query('SELECT COUNT(*) as totalLoans FROM loans');
+        const totalLoans = result3.rows[0]?.totalloans || 0;
+        
+        const result4 = await pool.query("SELECT COUNT(*) as totalReturns FROM loans WHERE status='Dikembalikan'");
+        const totalReturns = result4.rows[0]?.totalreturns || 0;
+        
+        const result5 = await pool.query('SELECT SUM(fineAmount) as totalFines FROM loans WHERE fineAmount > 0');
+        const totalFines = result5.rows[0]?.totalfines || 0;
+        
         res.json({
-            totalUsers: totalUsers || 0,
-            totalBooks: totalBooks || 0,
-            totalLoans: totalLoans || 0,
-            totalReturns: totalReturns || 0,
-            totalFines: totalFines || 0
+            totalUsers,
+            totalBooks,
+            totalLoans,
+            totalReturns,
+            totalFines
         });
     } catch (e) {
         console.error('[ADMIN][STATS] Error:', e);
         res.status(500).json({ message: 'Gagal mengambil statistik.' });
     }
 };
-// Statistik/Laporan untuk dashboard admin
-exports.getStats = async (req, res) => {
-    const pool = getDBPool(req);
-    try {
-        const [[{ totalUsers }]] = await pool.query('SELECT COUNT(*) as totalUsers FROM users');
-        const [[{ totalBooks }]] = await pool.query('SELECT COUNT(*) as totalBooks FROM books');
-        const [[{ totalLoans }]] = await pool.query('SELECT COUNT(*) as totalLoans FROM loans');
-        const [[{ totalReturns }]] = await pool.query("SELECT COUNT(*) as totalReturns FROM loans WHERE status='Dikembalikan'");
-        const [[{ totalFines }]] = await pool.query('SELECT SUM(fineAmount) as totalFines FROM loans WHERE fineAmount > 0');
-        res.json({
             totalUsers: totalUsers || 0,
             totalBooks: totalBooks || 0,
             totalLoans: totalLoans || 0,
@@ -64,14 +66,14 @@ exports.getTopBooks = async (req, res) => {
 exports.getMonthlyActivity = async (req, res) => {
     const pool = getDBPool(req);
     try {
-        const [loans] = await pool.query(`
+        const _tmpResult = await pool.query(`
             SELECT DATE_FORMAT(createdAt, '%Y-%m') as month, COUNT(*) as loanCount
             FROM loans
             GROUP BY month
             ORDER BY month DESC
             LIMIT 12
         `);
-        const [returns] = await pool.query(`
+        const _tmpResult = await pool.query(`
             SELECT DATE_FORMAT(updatedAt, '%Y-%m') as month, COUNT(*) as returnCount
             FROM loans
             WHERE status = 'Dikembalikan'
@@ -90,7 +92,7 @@ exports.getMonthlyActivity = async (req, res) => {
 exports.getActiveLoans = async (req, res) => {
     const pool = getDBPool(req);
     try {
-        const [[{ activeLoans }]] = await pool.query(`
+        const _tmpResult = await pool.query(`
             SELECT COUNT(*) as activeLoans FROM loans WHERE status IN ('Sedang Dipinjam', 'Terlambat', 'Siap Dikembalikan')
         `);
         res.json({ activeLoans });
@@ -104,7 +106,7 @@ exports.getActiveLoans = async (req, res) => {
 exports.getOutstandingFines = async (req, res) => {
     const pool = getDBPool(req);
     try {
-        const [[{ totalOutstandingFines }]] = await pool.query(`
+        const _tmpResult = await pool.query(`
             SELECT SUM(fineAmount) as totalOutstandingFines FROM loans WHERE fineAmount > 0 AND (finePaid IS NULL OR finePaid = 0)
         `);
         res.json({ totalOutstandingFines: totalOutstandingFines || 0 });
@@ -172,7 +174,7 @@ exports.getAllUsers = async (req, res) => {
             FROM users u
             ORDER BY u.id DESC
         `;
-        const [users] = await pool.query(userQuery);
+        const _tmpResult = await pool.query(userQuery);
 
         // Query all active loans for all users
         const loanQuery = `
@@ -181,7 +183,7 @@ exports.getAllUsers = async (req, res) => {
             JOIN books b ON l.book_id = b.id
             WHERE l.status IN ('Sedang Dipinjam', 'Menunggu Persetujuan', 'Terlambat', 'Siap Dikembalikan')
         `;
-        const [loans] = await pool.query(loanQuery);
+        const _tmpResult = await pool.query(loanQuery);
 
         // Group loans by user_id
         const loansByUser = {};
@@ -220,13 +222,13 @@ exports.createUser = async (req, res) => {
     
     try {
         // Cek duplikasi NPM
-        const [duplicate] = await pool.query('SELECT id FROM users WHERE npm = $1', [npm]);
+        const _tmpResult = await pool.query('SELECT id FROM users WHERE npm = $1', [npm]);
         if (duplicate.length > 0) {
             return res.status(400).json({ message: 'NPM sudah terdaftar.' });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
-        const [result] = await pool.query(
+        const _tmpResult = await pool.query(
             'INSERT INTO users (username, npm, password, role, fakultas, prodi, angkatan, denda) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
             [username, npm, hashedPassword, role, fakultas || null, prodi || null, angkatan || null, 0]
         );
@@ -339,7 +341,7 @@ exports.applyPenalty = async (req, res) => {
     }
 
     try {
-        const [result] = await pool.query(
+        const _tmpResult = await pool.query(
             'UPDATE users SET denda = denda + $1, denda_unpaid = denda_unpaid + $2 WHERE npm = $3', 
             [amount, amount, npm]
         );
@@ -361,7 +363,7 @@ exports.resetPenalty = async (req, res) => {
     const { id } = req.params; // Menggunakan ID pengguna
 
     try {
-        const [result] = await pool.query(
+        const _tmpResult = await pool.query(
             'UPDATE users SET denda = 0 WHERE id = $1', 
             [id]
         );
@@ -501,3 +503,5 @@ exports.verifyFinePayment = async (req, res) => {
         if (connection) connection.release();
     }
 };
+
+
