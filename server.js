@@ -55,6 +55,11 @@ const corsOptions = {
             return callback(null, true);
         }
         
+        // Allow Vercel deployments
+        if (origin.includes('vercel.app')) {
+            return callback(null, true);
+        }
+        
         if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes('*')) {
             callback(null, true);
         } else {
