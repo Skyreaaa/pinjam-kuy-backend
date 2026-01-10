@@ -504,4 +504,22 @@ exports.verifyFinePayment = async (req, res) => {
     }
 };
 
+// Get Pending Fine Payments
+exports.getPendingFinePayments = async (req, res) => {
+    const pool = getDBPool(req);
+    try {
+        const result = await pool.query(`
+            SELECT fp.*, u.username, u.npm 
+            FROM fine_payments fp
+            JOIN users u ON fp.user_id = u.id
+            WHERE fp.status = 'pending'
+            ORDER BY fp.created_at DESC
+        `);
+        res.json(result.rows || []);
+    } catch (error) {
+        console.error('[ADMIN] Error getting fine payments:', error);
+        res.status(500).json({ message: 'Gagal mengambil data pembayaran denda' });
+    }
+};
+
 
