@@ -52,6 +52,63 @@ const authenticateAdmin = (req, res, next) => {
 
 router.use(authenticateAdmin);
 
+// === USER MANAGEMENT ===
+router.get('/users', async (req, res) => {
+    const pool = req.app.get('dbPool');
+    try {
+        const result = await pool.query('SELECT id, npm, username, role, fakultas, prodi, angkatan, denda, denda_unpaid, active_loans_count, createdAt FROM users ORDER BY createdAt DESC');
+        res.json(result.rows || []);
+    } catch (error) {
+        console.error('[ADMIN] Error getting users:', error);
+        res.status(500).json({ message: 'Gagal mengambil daftar users' });
+    }
+});
+
+router.post('/users', async (req, res) => {
+    const pool = req.app.get('dbPool');
+    const { npm, username, password, role = 'user' } = req.body;
+    try {
+        const bcrypt = require('bcrypt');
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const result = await pool.query(
+            'INSERT INTO users (npm, username, password, role) VALUES ($1, $2, $3, $4) RETURNING *',
+            [npm, username, hashedPassword, role]
+        );
+        res.json({ success: true, user: result.rows[0] });
+    } catch (error) {
+        console.error('[ADMIN] Error creating user:', error);
+        res.status(500).json({ message: 'Gagal membuat user' });
+    }
+});
+
+router.put('/users/:id', async (req, res) => {
+    const pool = req.app.get('dbPool');
+    const { id } = req.params;
+    const { npm, username, role } = req.body;
+    try {
+        const result = await pool.query(
+            'UPDATE users SET npm = $1, username = $2, role = $3 WHERE id = $4 RETURNING *',
+            [npm, username, role, id]
+        );
+        res.json({ success: true, user: result.rows[0] });
+    } catch (error) {
+        console.error('[ADMIN] Error updating user:', error);
+        res.status(500).json({ message: 'Gagal update user' });
+    }
+});
+
+router.delete('/users/:id', async (req, res) => {
+    const pool = req.app.get('dbPool');
+    const { id } = req.params;
+    try {
+        await pool.query('DELETE FROM users WHERE id = $1', [id]);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[ADMIN] Error deleting user:', error);
+        res.status(500).json({ message: 'Gagal menghapus user' });
+    }
+});
+
 // Broadcast route (harus setelah authenticateAdmin)
 router.post('/broadcast', async (req, res) => {
     console.log('📢 [BROADCAST] Received request:', req.body);
