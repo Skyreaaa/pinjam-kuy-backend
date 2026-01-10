@@ -252,6 +252,16 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(sessionMiddleware);
 
+// --- 3. Register Routes (BEFORE database connection) ---
+// Routes need to be registered before server starts listening
+app.use('/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/loans', loanRoutes);
+app.use('/api/books', bookRoutes);
+app.use('/api/profile', profileRoutes);
+app.use('/api/push', pushRoutes);
+console.log('✅ Routes registered');
+
 let pool;
 
 // Fungsi Koneksi Database (PostgreSQL)
@@ -283,14 +293,6 @@ async function connectDB() {
         
         // Simpan pool di app untuk diakses oleh routes (WAJIB)
         app.set('dbPool', pool);
-        
-        // Register all routes AFTER database connection
-        app.use('/auth', authRoutes);
-        app.use('/api/admin', adminRoutes);
-        app.use('/api/loans', loanRoutes);
-        app.use('/api/books', bookRoutes);
-        app.use('/api/profile', profileRoutes);
-        app.use('/api/push', pushRoutes);
         
         console.log('✅ Database terhubung dengan sukses!');
         console.log('[DEBUG] connectDB() selesai tanpa error.');
