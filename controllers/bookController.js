@@ -58,13 +58,14 @@ exports.getAllBooks = async (req, res) => {
     if (sort === 'popular') {
         baseSelect += ' ORDER BY borrowCount DESC, b.id DESC';
     } else if (sort === 'newest') {
-        baseSelect += ' ORDER BY IFNULL(b.publicationYear,0) DESC, b.id DESC';
+        baseSelect += ' ORDER BY COALESCE(b.publicationYear,0) DESC, b.id DESC';
     } else {
         baseSelect += ' ORDER BY b.id DESC';
     }
 
     try {
-        const [rows] = await pool.query(baseSelect, params);
+        const _pgResult = await pool.query(baseSelect, params);
+        const rows = _pgResult.rows;
         // Gunakan URL Cloudinary langsung (tanpa prefix lokal)
         const booksWithFullPath = rows.map(book => ({
             ...book,
@@ -82,7 +83,8 @@ exports.getBookById = async (req, res) => {
     const pool = getDBPool(req);
     const bookId = req.params.id;
     try {
-    const [rows] = await pool.query('SELECT id, title, kodeBuku, author, publisher, publicationYear, totalStock, availableStock, category, image_url, location, description, programStudi, bahasa, jenisKoleksi, lampiran, attachment_url, pemusatanMateri, pages FROM books WHERE id = ?', [bookId]);
+    const _pgResult = await pool.query('SELECT id, title, kodeBuku, author, publisher, publicationYear, totalStock, availableStock, category, image_url, location, description, programStudi, bahasa, jenisKoleksi, lampiran, attachment_url, pemusatanMateri, pages FROM books WHERE id = $1', [bookId]);
+        const rows = _pgResult.rows;
         if (rows.length === 0) {
             return res.status(404).json({ message: 'Buku tidak ditemukan.' });
         }
@@ -119,7 +121,7 @@ exports.createBook = async (req, res) => {
 
     try {
         // Cek duplikasi Kode Buku
-        const [duplicate] = await pool.query('SELECT id FROM books WHERE kodeBuku = ?', [kodeBuku]);
+        const [duplicate] = await pool.query('SELECT id FROM books WHERE kodeBuku = $1', [kodeBuku]);
         if (duplicate.length > 0) {
             return res.status(400).json({ message: 'Kode Buku sudah digunakan.' });
         }
@@ -167,7 +169,7 @@ exports.createBook = async (req, res) => {
             valuesToInsert.push(pages || null);
         }
 
-        const insertQuery = `INSERT INTO books (${columnsToInsert.join(', ')}) VALUES (${columnsToInsert.map(() => '?').join(', ')})`;
+        const insertQuery = `INSERT INTO books (${columnsToInsert.join(', ')}) VALUES (${columnsToInsert.map(() => '$1').join(', ')})`;
         console.log('📊 [CREATE BOOK] SQL:', insertQuery);
         console.log('📊 [CREATE BOOK] Values:', valuesToInsert);
 
@@ -226,7 +228,7 @@ exports.updateBook = async (req, res) => {
         await connection.beginTransaction();
 
         // 1. Cek duplikasi Kode Buku (kecuali untuk buku ini sendiri)
-        const [duplicate] = await connection.query('SELECT id FROM books WHERE kodeBuku = ? AND id != ?', [kodeBuku, bookId]);
+        const [duplicate] = await connection.query('SELECT id FROM books WHERE kodeBuku = $2 AND id != $3', [kodeBuku, bookId]);
         if (duplicate.length > 0) {
             await connection.rollback();
             return res.status(400).json({ message: 'Kode Buku sudah digunakan oleh buku lain.' });
@@ -332,7 +334,7 @@ exports.deleteBook = async (req, res) => {
 
     try {
         // 1. Cek apakah ada pinjaman aktif (Penting: Logika yang diminta dipertahankan)
-        const [activeLoans] = await pool.query('SELECT COUNT(*) as count FROM loans WHERE book_id = ? AND status IN (?, ?, ?)', 
+        const [activeLoans] = await pool.query('SELECT COUNT(*) as count FROM loans WHERE book_id = $1 AND status IN ($2, $3, $4)', 
             [bookId, 'Sedang Dipinjam', 'Menunggu Persetujuan', 'Siap Dikembalikan']
         );
         if (activeLoans[0].count > 0) {
@@ -340,10 +342,10 @@ exports.deleteBook = async (req, res) => {
         }
 
         // 2. Ambil image_url sebelum menghapus data
-        const [book] = await pool.query('SELECT image_url FROM books WHERE id = ?', [bookId]);
+        const [book] = await pool.query('SELECT image_url FROM books WHERE id = $1', [bookId]);
         
         // 3. Hapus data buku
-        const [result] = await pool.query('DELETE FROM books WHERE id = ?', [bookId]);
+        const [result] = await pool.query('DELETE FROM books WHERE id = $1', [bookId]);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Buku tidak ditemukan.' });

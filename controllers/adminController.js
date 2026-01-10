@@ -44,7 +44,7 @@ exports.getStats = async (req, res) => {
 exports.getTopBooks = async (req, res) => {
     const pool = getDBPool(req);
     try {
-        const [rows] = await pool.query(`
+        const _pgResult = await pool.query(`
             SELECT b.id, b.title, b.author, b.category, COUNT(l.id) as borrowCount
             FROM books b
             LEFT JOIN loans l ON l.book_id = b.id
@@ -52,6 +52,7 @@ exports.getTopBooks = async (req, res) => {
             ORDER BY borrowCount DESC
             LIMIT 5
         `);
+        const rows = _pgResult.rows;
         res.json(rows);
     } catch (e) {
         console.error('[ADMIN][TOP_BOOKS] Error:', e);
@@ -117,13 +118,14 @@ exports.getOutstandingFines = async (req, res) => {
 exports.getNotificationStats = async (req, res) => {
     const pool = getDBPool(req);
     try {
-        const [rows] = await pool.query(`
+        const _pgResult = await pool.query(`
             SELECT DATE(createdAt) as date, COUNT(*) as notifCount
             FROM user_notifications
             WHERE createdAt >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
             GROUP BY date
             ORDER BY date DESC
         `);
+        const rows = _pgResult.rows;
         res.json(rows);
     } catch (e) {
         console.error('[ADMIN][NOTIF_STATS] Error:', e);
@@ -160,10 +162,10 @@ exports.getAllUsers = async (req, res) => {
                 u.id, u.username, u.npm, u.role, u.fakultas, u.prodi, u.angkatan,
                 u.denda,
                 COALESCE((
-                    SELECT SUM(l.fineAmount - IFNULL(l.finePaid,0))
+                    SELECT SUM(l.fineAmount - COALESCE(l.finePaid,0))
                     FROM loans l 
                     WHERE l.user_id = u.id 
-                      AND l.fineAmount > IFNULL(l.finePaid,0)
+                      AND l.fineAmount > COALESCE(l.finePaid,0)
                       AND l.finePaymentStatus IN ('unpaid','awaiting_proof','pending_verification')
                 ),0) AS active_unpaid_fine,
                 (SELECT COUNT(*) FROM loans l2 WHERE l2.user_id = u.id AND l2.status IN ('Sedang Dipinjam', 'Menunggu Persetujuan', 'Terlambat', 'Siap Dikembalikan')) AS active_loans_count
@@ -218,14 +220,14 @@ exports.createUser = async (req, res) => {
     
     try {
         // Cek duplikasi NPM
-        const [duplicate] = await pool.query('SELECT id FROM users WHERE npm = ?', [npm]);
+        const [duplicate] = await pool.query('SELECT id FROM users WHERE npm = $1', [npm]);
         if (duplicate.length > 0) {
             return res.status(400).json({ message: 'NPM sudah terdaftar.' });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
         const [result] = await pool.query(
-            'INSERT INTO users (username, npm, password, role, fakultas, prodi, angkatan, denda) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO users (username, npm, password, role, fakultas, prodi, angkatan, denda) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
             [username, npm, hashedPassword, role, fakultas || null, prodi || null, angkatan || null, 0]
         );
 
@@ -338,7 +340,7 @@ exports.applyPenalty = async (req, res) => {
 
     try {
         const [result] = await pool.query(
-            'UPDATE users SET denda = denda + ?, denda_unpaid = denda_unpaid + ? WHERE npm = ?', 
+            'UPDATE users SET denda = denda + $1, denda_unpaid = denda_unpaid + $2 WHERE npm = $3', 
             [amount, amount, npm]
         );
 
@@ -360,7 +362,7 @@ exports.resetPenalty = async (req, res) => {
 
     try {
         const [result] = await pool.query(
-            'UPDATE users SET denda = 0 WHERE id = ?', 
+            'UPDATE users SET denda = 0 WHERE id = $1', 
             [id]
         );
 
@@ -379,11 +381,12 @@ exports.resetPenalty = async (req, res) => {
 exports.getPendingFinePayments = async (req, res) => {
     const pool = getDBPool(req);
     try {
-        const [rows] = await pool.query(`
+        const _pgResult = await pool.query(`
             SELECT * FROM fine_payments 
             WHERE status = 'pending' 
             ORDER BY created_at DESC
         `);
+        const rows = _pgResult.rows;
         res.json(rows);
     } catch (e) {
         console.error('[ADMIN][FINE_PAYMENTS] Error:', e);
@@ -408,7 +411,7 @@ exports.verifyFinePayment = async (req, res) => {
         await connection.beginTransaction();
         
         // Get payment detail
-        const [payments] = await connection.query('SELECT * FROM fine_payments WHERE id = ? LIMIT 1', [id]);
+        const [payments] = await connection.query('SELECT * FROM fine_payments WHERE id = $1 LIMIT 1', [id]);
         if (!payments.length) {
             await connection.rollback();
             return res.status(404).json({ message: 'Pembayaran tidak ditemukan.' });
@@ -421,7 +424,7 @@ exports.verifyFinePayment = async (req, res) => {
             let updateProof = proofUrl || payment.proof_url;
             
             await connection.query(
-                'UPDATE fine_payments SET status = ?, verified_by = ?, verified_at = NOW(), admin_notes = ?, proof_url = ? WHERE id = ?',
+                'UPDATE fine_payments SET status = ?, verified_by = ?, verified_at = CURRENT_TIMESTAMP, admin_notes = ?, proof_url = ? WHERE id = ?',
                 ['approved', adminId, notes || null, updateProof, id]
             );
             
@@ -454,14 +457,14 @@ exports.verifyFinePayment = async (req, res) => {
             // Save to user_notifications
             await connection.query(
                 `INSERT INTO user_notifications (user_id, kind, type, title, message, created_at) 
-                 VALUES (?, 'user_notif', 'success', 'Pembayaran Denda Disetujui', ?, NOW())`,
+                 VALUES (?, 'user_notif', 'success', 'Pembayaran Denda Disetujui', ?, CURRENT_TIMESTAMP)`,
                 [payment.user_id, message]
             );
             
         } else {
             // Reject payment
             await connection.query(
-                'UPDATE fine_payments SET status = ?, verified_by = ?, verified_at = NOW(), admin_notes = ? WHERE id = ?',
+                'UPDATE fine_payments SET status = ?, verified_by = ?, verified_at = CURRENT_TIMESTAMP, admin_notes = ? WHERE id = ?',
                 ['rejected', adminId, notes || 'Pembayaran ditolak', id]
             );
             
@@ -483,7 +486,7 @@ exports.verifyFinePayment = async (req, res) => {
             // Save to user_notifications
             await connection.query(
                 `INSERT INTO user_notifications (user_id, kind, type, title, message, created_at) 
-                 VALUES (?, 'user_notif', 'error', 'Pembayaran Denda Ditolak', ?, NOW())`,
+                 VALUES (?, 'user_notif', 'error', 'Pembayaran Denda Ditolak', ?, CURRENT_TIMESTAMP)`,
                 [payment.user_id, message]
             );
         }
