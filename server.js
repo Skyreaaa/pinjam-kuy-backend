@@ -173,32 +173,37 @@ if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_DATABASE) {
 }
 
 // --- Environment Diagnostics (untuk troubleshooting login) ---
-const requiredEnv = ['DB_HOST','DB_USER','DB_PASSWORD','DB_DATABASE','JWT_SECRET'];
-requiredEnv.forEach(key => {
-    if (!process.env[key] || process.env[key].length === 0) {
-        console.warn(`[ENV WARN] Variabel ${key} kosong atau tidak terdefinisi.`);
-    }
-});
-console.log('ENV SUMMARY:', {
-    DB_HOST: process.env.DB_HOST,
-    DB_USER: process.env.DB_USER,
-    DB_DATABASE: process.env.DB_DATABASE,
-    HAS_JWT_SECRET: !!process.env.JWT_SECRET,
-});
+// Skip validation untuk DATABASE_URL (PostgreSQL connection string)
+if (!process.env.DATABASE_URL) {
+    const requiredEnv = ['DB_HOST','DB_USER','DB_PASSWORD','DB_DATABASE','JWT_SECRET'];
+    requiredEnv.forEach(key => {
+        if (!process.env[key] || process.env[key].length === 0) {
+            console.warn(`[ENV WARN] Variabel ${key} kosong atau tidak terdefinisi.`);
+        }
+    });
+    console.log('ENV SUMMARY:', {
+        DB_HOST: process.env.DB_HOST,
+        DB_USER: process.env.DB_USER,
+        DB_DATABASE: process.env.DB_DATABASE,
+        HAS_JWT_SECRET: !!process.env.JWT_SECRET,
+    });
 
-// Hard fail early if critical env still missing (agar tidak bingung di tahap login)
-if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_DATABASE) {
-    console.error('\n[ENV FATAL] Variabel DB_HOST / DB_USER / DB_DATABASE masih kosong.');
-    console.error('> Pastikan file .env berada di folder be-pinjam-master dan berisi nilai seperti:');
-    console.error('  DB_HOST=localhost');
-    console.error('  DB_USER=root');
-    console.error('  DB_DATABASE=pinjam_kuy');
-    console.error('\n[DEBUG] Path file server.js :', __filename);
-    console.error('[DEBUG] Working directory    :', process.cwd());
-    console.error('[DEBUG] Kandidat .env dicek  :', envPathCandidates);
-    console.error('[DEBUG] Loaded from          :', loadedEnvPath || '(NOT LOADED)');
-    console.error('> Jika kamu baru saja membuat .env, SIMPAN file lalu restart: node server.js');
-    process.exit(1);
+    // Hard fail early if critical env still missing (agar tidak bingung di tahap login)
+    if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_DATABASE) {
+        console.error('\n[ENV FATAL] Variabel DB_HOST / DB_USER / DB_DATABASE masih kosong.');
+        console.error('> Pastikan file .env berada di folder be-pinjam-master dan berisi nilai seperti:');
+        console.error('  DB_HOST=localhost');
+        console.error('  DB_USER=root');
+        console.error('  DB_DATABASE=pinjam_kuy');
+        console.error('\n[DEBUG] Path file server.js :', __filename);
+        console.error('[DEBUG] Working directory    :', process.cwd());
+        console.error('[DEBUG] Kandidat .env dicek  :', envPathCandidates);
+        console.error('[DEBUG] Loaded from          :', loadedEnvPath || '(NOT LOADED)');
+        console.error('> Jika kamu baru saja membuat .env, SIMPAN file lalu restart: node server.js');
+        process.exit(1);
+    }
+} else {
+    console.log('ENV SUMMARY: Using DATABASE_URL for PostgreSQL connection');
 }
 
 const server = http.createServer(app);
