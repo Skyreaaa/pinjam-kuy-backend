@@ -4,7 +4,7 @@ console.log('[DEBUG] JWT_SECRET:', process.env.JWT_SECRET);
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const mysql = require('mysql2/promise');
+const { Pool } = require('pg'); // PostgreSQL instead of MySQL
 const dotenv = require('dotenv');
 const fs = require('fs');
 const cors = require('cors');
@@ -249,25 +249,27 @@ app.use(sessionMiddleware);
 
 let pool;
 
-// Fungsi Koneksi Database (Menggunakan mysql2/promise)
+// Fungsi Koneksi Database (PostgreSQL)
 async function connectDB() {
     try {
-        const baseConfig = {
-            host: process.env.DB_HOST,
-            user: process.env.DB_USER,
-            password: process.env.DB_PASSWORD,
-            waitForConnections: true,
-            connectionLimit: 10,
-            queueLimit: 0,
-            multipleStatements: true // untuk impor schema fallback gabungan
-        };
+        // PostgreSQL connection using environment variables or connection string
+        const connectionString = process.env.DATABASE_URL || 
+            `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT || 5432}/${process.env.DB_DATABASE}`;
+        
+        pool = new Pool({
+            connectionString: connectionString,
+            ssl: {
+                rejectUnauthorized: false // Required for Supabase
+            }
+        });
 
-        const dbName = process.env.DB_DATABASE;
-        if (!dbName) throw new Error('DB_DATABASE env tidak di-set.');
-
-        try {
-            pool = mysql.createPool({ ...baseConfig, database: dbName });
-            await pool.query('SELECT 1');
+        // Test connection
+        const client = await pool.connect();
+        await client.query('SELECT 1');
+        client.release();
+        
+        console.log('✅ Database terhubung!');
+        return pool;
         } catch (err) {
             if (err && err.code === 'ER_BAD_DB_ERROR') {
                 console.warn(`⚠️  Database '${dbName}' belum ada. Membuat dan mengimpor schema...`);
