@@ -360,10 +360,11 @@ exports.markAsReadyToReturn = async (req, res) => {
 
     try {
         // Cek kepemilikan dan status pinjaman + kolom opsional
-        const [loans] = await pool.query(
-            "SELECT status, returnProofUrl FROM loans WHERE id =: AND user_id = $2",
+        const _pgResult = await pool.query(
+            "SELECT status, returnProofUrl FROM loans WHERE id = $1 AND user_id = $2",
             [loanId, userId]
         );
+        const loans = _pgResult.rows;
 
         if (loans.length === 0) {
             return res.status(404).json({ message: 'Pinjaman tidak ditemukan atau bukan milik Anda.' });
@@ -403,7 +404,7 @@ exports.markAsReadyToReturn = async (req, res) => {
 
         // Update status menjadi Siap Dikembalikan + set readyReturnDate + proof + metadata
         const result = await pool.query(
-            "UPDATE loans SET status = $1, readyReturnDate = $2, returnProofUrl = $3, returnProofMetadata =: WHERE id =: AND user_id = $6",
+            "UPDATE loans SET status = $1, readyReturnDate = $2, returnProofUrl = $3, returnProofMetadata = $4 WHERE id = $5 AND user_id = $6",
             ['Siap Dikembalikan', new Date(), proofUrl, metadata ? JSON.stringify(metadata) : null, loanId, userId]
         );
 
