@@ -1524,125 +1524,171 @@ exports.getUserActivityHistory = async (req, res) => {
         console.log('[ACTIVITY_HISTORY] Fetching activities since:', twoMonthsAgo);
         
         // Get all loans from last 2 months with book info and admin rejection proof
-        const loansResult = await pool.query(
-            `SELECT 
-                l.id,
-                l.kodepinjam AS "kodePinjam",
-                l.loandate AS "loanDate",
-                l.expectedreturndate AS "expectedReturnDate",
-                l.actualreturndate AS "actualReturnDate",
-                l.status,
-                COALESCE(l.fineamount, 0) AS "fineAmount",
-                l.finepaid AS "finePaid",
-                COALESCE(l.finereason, '') AS "fineReason",
-                COALESCE(l.rejectionreason, '') AS "rejectionReason",
-                l.rejectiondate AS "rejectionDate",
-                COALESCE(l.adminrejectionproof, '') AS "adminRejectionProof",
-                l.returnproofurl AS "returnProofUrl",
-                l.returnproofmetadata AS "returnProofMetadata",
-                l.createdat AS "createdAt",
-                b.title AS "bookTitle",
-                b.author,
-                b.kodebuku AS "kodeBuku"
-             FROM loans l
-             JOIN books b ON l.book_id = b.id
-             WHERE l.user_id = $1 
-                AND l.createdat >= $2
-             ORDER BY l.createdat DESC`,
-            [userId, twoMonthsAgo]
-        );
+        let loansResult;
+        try {
+            loansResult = await pool.query(
+                `SELECT 
+                    l.id,
+                    l.kodepinjam AS "kodePinjam",
+                    l.loandate AS "loanDate",
+                    l.expectedreturndate AS "expectedReturnDate",
+                    l.actualreturndate AS "actualReturnDate",
+                    l.status,
+                    COALESCE(l.fineamount, 0) AS "fineAmount",
+                    l.finepaid AS "finePaid",
+                    COALESCE(l.finereason, '') AS "fineReason",
+                    COALESCE(l.rejectionreason, '') AS "rejectionReason",
+                    l.rejectiondate AS "rejectionDate",
+                    COALESCE(l.adminrejectionproof, '') AS "adminRejectionProof",
+                    l.returnproofurl AS "returnProofUrl",
+                    l.returnproofmetadata AS "returnProofMetadata",
+                    l.createdat AS "createdAt",
+                    b.title AS "bookTitle",
+                    b.author,
+                    b.kodebuku AS "kodeBuku"
+                 FROM loans l
+                 JOIN books b ON l.book_id = b.id
+                 WHERE l.user_id = $1 
+                    AND l.createdat >= $2
+                 ORDER BY l.createdat DESC`,
+                [userId, twoMonthsAgo]
+            );
+        } catch (loansError) {
+            console.error('[ACTIVITY_HISTORY] Error fetching loans:', loansError);
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Gagal memuat riwayat peminjaman',
+                error: loansError.message 
+            });
+        }
         
         console.log('[ACTIVITY_HISTORY] Found loans:', loansResult.rows.length);
         
         // Get fine payments from last 2 months
-        const paymentsResult = await pool.query(
-            `SELECT 
-                id,
-                method,
-                amount_total AS "amountTotal",
-                status,
-                created_at AS "createdAt",
-                verified_at AS "verifiedAt",
-                admin_notes AS "adminNotes"
-             FROM fine_payments
-             WHERE user_id = $1
-                AND created_at >= $2
-             ORDER BY created_at DESC`,
-            [userId, twoMonthsAgo]
-        );
+        let paymentsResult;
+        try {
+            paymentsResult = await pool.query(
+                `SELECT 
+                    id,
+                    method,
+                    amount_total AS "amountTotal",
+                    status,
+                    created_at AS "createdAt",
+                    verified_at AS "verifiedAt",
+                    admin_notes AS "adminNotes"
+                 FROM fine_payments
+                 WHERE user_id = $1
+                    AND created_at >= $2
+                 ORDER BY created_at DESC`,
+                [userId, twoMonthsAgo]
+            );
+        } catch (paymentsError) {
+            console.error('[ACTIVITY_HISTORY] Error fetching payments:', paymentsError);
+            // Continue without payments if table doesn't exist
+            paymentsResult = { rows: [] };
+        }
         
         console.log('[ACTIVITY_HISTORY] Found payments:', paymentsResult.rows.length);
         
         // Combine and format activity data
         const activities = [];
         
-        // Add loan activities
-        loansResult.rows.forEach(loan => {
-            // Loan request activity
-            activities.push({
-                type: 'loan_request',
-                date: loan.createdAt,
-                loanId: loan.id,
-                kodePinjam: loan.kodePinjam,
-                bookTitle: loan.bookTitle,
-                author: loan.author,
-                status: loan.status,
-                description: `Meminjam buku "${loan.bookTitle}"`
-            });
-            
-            // Return activity if returned
-            if (loan.actualReturnDate) {
+        // Add loan activities with error handling
+        try {
+            loansResult.rows.forEach(loan => {
+                // Loan request activity
                 activities.push({
-                    type: 'return',
-                    date: loan.actualReturnDate,
+                    type: 'loan_request',
+                    date: loan.createdAt,
                     loanId: loan.id,
-                    kodePinjam: loan.kodePinjam,
-                    bookTitle: loan.bookTitle,
-                    author: loan.author,
-                    status: loan.status,
-                    fineAmount: loan.fineAmount,
-                    finePaid: loan.finePaid,
-                    fineReason: loan.fineReason,
-                    returnProofUrl: loan.returnProofUrl,
-                    returnProofMetadata: loan.returnProofMetadata,
-                    description: `Mengembalikan buku "${loan.bookTitle}"${loan.fineAmount && loan.fineAmount > 0 ? ` (Denda: Rp ${loan.fineAmount.toLocaleString('id-ID')})` : ''}`
+                    kodePinjam: loan.kodePinjam || '',
+                    bookTitle: loan.bookTitle || 'Judul tidak tersedia',
+                    author: loan.author || 'Penulis tidak tersedia',
+                    status: loan.status || 'Unknown',
+                    description: `Meminjam buku "${loan.bookTitle || 'Judul tidak tersedia'}"`
                 });
-            }
-            
-            // Return rejection activity if rejected by admin
-            if (loan.rejectionDate && loan.rejectionReason) {
-                activities.push({
-                    type: 'return_rejected',
-                    date: loan.rejectionDate,
-                    loanId: loan.id,
-                    kodePinjam: loan.kodePinjam,
-                    bookTitle: loan.bookTitle,
-                    author: loan.author,
-                    status: 'Pengembalian Ditolak',
-                    rejectionReason: loan.rejectionReason,
-                    adminRejectionProof: loan.adminRejectionProof,
-                    description: `Pengembalian buku "${loan.bookTitle}" ditolak admin${loan.rejectionReason ? `: ${loan.rejectionReason}` : ''}`
-                });
-            }
-        });
-        
-        // Add fine payment activities
-        paymentsResult.rows.forEach(payment => {
-            activities.push({
-                type: 'fine_payment',
-                date: payment.createdAt,
-                paymentId: payment.id,
-                method: payment.method,
-                amount: payment.amountTotal,
-                status: payment.status,
-                verifiedAt: payment.verifiedAt,
-                adminNotes: payment.adminNotes,
-                description: `Pembayaran denda Rp ${payment.amountTotal ? payment.amountTotal.toLocaleString('id-ID') : '0'} (${payment.method === 'qris' ? 'QRIS' : payment.method === 'bank_transfer' ? 'Transfer Bank' : 'Tunai'})`
+                
+                // Return activity if returned
+                if (loan.actualReturnDate) {
+                    activities.push({
+                        type: 'return',
+                        date: loan.actualReturnDate,
+                        loanId: loan.id,
+                        kodePinjam: loan.kodePinjam || '',
+                        bookTitle: loan.bookTitle || 'Judul tidak tersedia',
+                        author: loan.author || 'Penulis tidak tersedia',
+                        status: loan.status || 'Unknown',
+                        fineAmount: loan.fineAmount || 0,
+                        finePaid: loan.finePaid || false,
+                        fineReason: loan.fineReason || '',
+                        returnProofUrl: loan.returnProofUrl || '',
+                        returnProofMetadata: loan.returnProofMetadata || null,
+                        description: `Mengembalikan buku "${loan.bookTitle || 'Judul tidak tersedia'}"${loan.fineAmount && loan.fineAmount > 0 ? ` (Denda: Rp ${loan.fineAmount.toLocaleString('id-ID')})` : ''}`
+                    });
+                }
+                
+                // Return rejection activity if rejected by admin
+                if (loan.rejectionDate && loan.rejectionReason) {
+                    activities.push({
+                        type: 'return_rejected',
+                        date: loan.rejectionDate,
+                        loanId: loan.id,
+                        kodePinjam: loan.kodePinjam || '',
+                        bookTitle: loan.bookTitle || 'Judul tidak tersedia',
+                        author: loan.author || 'Penulis tidak tersedia',
+                        status: 'Pengembalian Ditolak',
+                        rejectionReason: loan.rejectionReason || '',
+                        adminRejectionProof: loan.adminRejectionProof || '',
+                        description: `Pengembalian buku "${loan.bookTitle || 'Judul tidak tersedia'}" ditolak admin${loan.rejectionReason ? `: ${loan.rejectionReason}` : ''}`
+                    });
+                }
             });
-        });
+        } catch (loanProcessError) {
+            console.error('[ACTIVITY_HISTORY] Error processing loans:', loanProcessError);
+            // Continue processing even if some loans fail
+        }
         
-        // Sort all activities by date (newest first)
-        activities.sort((a, b) => new Date(b.date) - new Date(a.date));
+        // Add fine payment activities with error handling
+        try {
+            paymentsResult.rows.forEach(payment => {
+                const amount = payment.amountTotal || 0;
+                const method = payment.method || 'unknown';
+                
+                activities.push({
+                    type: 'fine_payment',
+                    date: payment.createdAt,
+                    paymentId: payment.id,
+                    method: method,
+                    amount: amount,
+                    status: payment.status || 'unknown',
+                    verifiedAt: payment.verifiedAt || null,
+                    adminNotes: payment.adminNotes || '',
+                    description: `Pembayaran denda Rp ${amount.toLocaleString('id-ID')} (${method === 'qris' ? 'QRIS' : method === 'bank_transfer' ? 'Transfer Bank' : method === 'cash' ? 'Tunai' : method})`
+                });
+            });
+        } catch (paymentProcessError) {
+            console.error('[ACTIVITY_HISTORY] Error processing payments:', paymentProcessError);
+            // Continue processing even if some payments fail
+        }
+        
+        // Sort all activities by date (newest first) with error handling
+        try {
+            activities.sort((a, b) => {
+                const dateA = new Date(a.date);
+                const dateB = new Date(b.date);
+                
+                if (isNaN(dateA.getTime()) && isNaN(dateB.getTime())) return 0;
+                if (isNaN(dateA.getTime())) return 1;
+                if (isNaN(dateB.getTime())) return -1;
+                
+                return dateB - dateA;
+            });
+        } catch (sortError) {
+            console.error('[ACTIVITY_HISTORY] Error sorting activities:', sortError);
+            // If sorting fails, return unsorted activities
+        }
+        
+        console.log('[ACTIVITY_HISTORY] Successfully processed', activities.length, 'activities');
         
         res.json({
             success: true,
@@ -1653,10 +1699,12 @@ exports.getUserActivityHistory = async (req, res) => {
         });
     } catch (error) {
         console.error('❌ [getUserActivityHistory] Error:', error);
+        console.error('❌ [getUserActivityHistory] Stack:', error.stack);
         res.status(500).json({ 
             success: false, 
             message: 'Gagal memuat riwayat aktivitas', 
-            error: error.message 
+            error: error.message,
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
 };
