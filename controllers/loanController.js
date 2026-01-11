@@ -186,8 +186,22 @@ exports.getUserLoanHistory = async (req, res) => {
     try {
         const query = `
             SELECT 
-                l.id, l.loandate, l.expectedreturndate, l.actualreturndate, l.status, l.fineamount, l.finepaid, l.returnproofurl, l.kodepinjam,
-                b.title, b.author, b.kodebuku, b.image_url, b.location, b.lampiran, b.attachment_url
+                l.id, 
+                l.loandate AS "loanDate", 
+                l.expectedreturndate AS "expectedReturnDate", 
+                l.actualreturndate AS "actualReturnDate", 
+                l.status, 
+                l.fineamount AS "fineAmount", 
+                l.finepaid AS "finePaid", 
+                l.returnproofurl AS "returnProofUrl", 
+                l.kodepinjam AS "kodePinjam",
+                b.title, 
+                b.author, 
+                b.kodebuku AS "kodeBuku", 
+                b.image_url, 
+                b.location, 
+                b.lampiran, 
+                b.attachment_url
             FROM loans l
             JOIN books b ON l.book_id = b.id
             WHERE l.user_id = $1
@@ -196,11 +210,10 @@ exports.getUserLoanHistory = async (req, res) => {
         const result = await pool.query(query, [userId]);
         const loans = result.rows;
         
-        // Cek dan update status pinjaman jika terlambat (auto-update status "Sedang Dipinjam" ke "Terlambat")
+        // Cek dan update status pinjaman jika terlambat
         const today = new Date();
         const updatedLoans = loans.map(loan => {
             if (loan.status === 'Sedang Dipinjam' && loan.expectedReturnDate && isBefore(new Date(loan.expectedReturnDate), today)) {
-                // Tandai sebagai terlambat di response, tidak perlu update DB setiap saat
                 return { ...loan, status: 'Terlambat' };
             }
             return loan;
@@ -209,7 +222,7 @@ exports.getUserLoanHistory = async (req, res) => {
         res.json(updatedLoans);
     } catch (error) {
         console.error('❌ Error fetching user loan history:', error);
-        res.status(500).json({ message: 'Gagal mengambil riwayat pinjaman.' });
+        res.status(500).json({ message: 'Gagal mengambil riwayat pinjaman: ' + error.message });
     }
 };
 
@@ -221,21 +234,36 @@ exports.getUserLoans = async (req, res) => {
         const colsResult = await pool.query("SELECT column_name FROM information_schema.columns WHERE table_name = 'loans'");
         const cols = colsResult.rows;
         const names = cols.map(c => c.column_name);
+        
+        // Build SELECT with proper PostgreSQL lowercase column names
         const selectParts = [
-            'l.id','l.loanDate','l.expectedReturnDate AS returnDate','l.actualReturnDate','l.status','l.fineAmount','l.returnDecision'
+            'l.id',
+            'l.loandate AS "loanDate"',
+            'l.expectedreturndate AS "returnDate"',
+            'l.actualreturndate AS "actualReturnDate"',
+            'l.status',
+            'l.fineamount AS "fineAmount"',
+            'l.returndecision AS "returnDecision"'
         ];
-        if (names.includes('kodePinjam')) selectParts.push('l.kodePinjam');
+        
+        if (names.includes('kodepinjam')) selectParts.push('l.kodepinjam AS "kodePinjam"');
         if (names.includes('purpose')) selectParts.push('l.purpose');
-        if (names.includes('finePaid')) selectParts.push('l.finePaid');
-        if (names.includes('finePaymentStatus')) selectParts.push('l.finePaymentStatus');
-        if (names.includes('finePaymentMethod')) selectParts.push('l.finePaymentMethod');
-        if (names.includes('finePaymentProof')) selectParts.push('l.finePaymentProof');
-        selectParts.push('b.title as bookTitle','b.kodeBuku','b.author','b.location','b.lampiran','b.attachment_url');
+        if (names.includes('finepaid')) selectParts.push('l.finepaid AS "finePaid"');
+        if (names.includes('finepaymentstatus')) selectParts.push('l.finepaymentstatus AS "finePaymentStatus"');
+        if (names.includes('finepaymentmethod')) selectParts.push('l.finepaymentmethod AS "finePaymentMethod"');
+        if (names.includes('finepaymentproof')) selectParts.push('l.finepaymentproof AS "finePaymentProof"');
         
-        // Backfill sebelum select (non-blok karena sederhana)
-        try { await backfillMissingKodePinjam(pool); } catch (bfErr) { console.warn('[LOAN][BACKFILL] gagal:', bfErr.message); }
+        // Book columns with proper aliases
+        selectParts.push(
+            'b.title AS "bookTitle"',
+            'b.kodebuku AS "kodeBuku"',
+            'b.author',
+            'b.location',
+            'b.lampiran',
+            'b.attachment_url'
+        );
         
-        const query = `SELECT ${selectParts.join(', ')} FROM loans l JOIN books b ON l.book_id = b.id WHERE l.user_id = $1 ORDER BY l.loanDate DESC`;
+        const query = `SELECT ${selectParts.join(', ')} FROM loans l JOIN books b ON l.book_id = b.id WHERE l.user_id = $1 ORDER BY l.loandate DESC`;
         const result = await pool.query(query, [userId]);
         const rows = result.rows;
         
@@ -248,25 +276,24 @@ exports.getUserLoans = async (req, res) => {
                 if (now.getTime() > expiry) {
                     // QR expired, auto-cancel
                     await pool.query(
-                        'UPDATE loans SET status =: WHERE id = $2',
+                        'UPDATE loans SET status = $1 WHERE id = $2',
                         ['Ditolak', loan.id]
                     );
                     // Kembalikan stok
                     await pool.query(
-                        'UPDATE books SET availableStock = availableStock + 1 WHERE id = (SELECT book_id FROM loans WHERE id = $1)',
+                        'UPDATE books SET availablestock = availablestock + 1 WHERE id = (SELECT book_id FROM loans WHERE id = $1)',
                         [loan.id]
                     );
                     console.log(`[AUTO-CANCEL] Loan ID ${loan.id} expired and auto-canceled`);
-                    loan.status = 'Ditolak'; // Update di response juga
+                    loan.status = 'Ditolak';
                 }
             }
         }
         
-        // No release
         res.json(rows);
     } catch (error) {
         console.error('❌ Error fetching user loans:', error);
-        res.status(500).json({ message: 'Gagal mengambil daftar pinjaman.' });
+        res.status(500).json({ message: 'Gagal mengambil daftar pinjaman: ' + error.message });
     }
 };
 
