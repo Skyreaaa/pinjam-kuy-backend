@@ -1032,8 +1032,8 @@ exports.ackApprovalNotifications = async (req, res) => {
         return res.status(400).json({ success:false, message:'IDs diperlukan.' });
     }
     try {
-        const placeholders = ids.map(()=>'?').join(',');
-        await pool.query(`UPDATE loans SET userNotified = 1 WHERE user_id =: AND id IN (${placeholders})`, [userId, ...ids]);
+        const placeholders = ids.map((_, i) => `$${i + 2}`).join(',');
+        await pool.query(`UPDATE loans SET userNotified = TRUE WHERE user_id = $1 AND id IN (${placeholders})`, [userId, ...ids]);
         res.json({ success:true });
     } catch (e){
         console.error('❌ Error ackApprovalNotifications:', e);
@@ -1330,8 +1330,8 @@ exports.ackRejectionNotifications = async (req, res) => {
         return res.status(400).json({ success:false, message:'IDs diperlukan.' });
     }
     try {
-        const placeholders = ids.map(()=>'?').join(',');
-        await pool.query(`UPDATE loans SET rejectionNotified = 1 WHERE user_id =: AND id IN (${placeholders})`, [userId, ...ids]);
+        const placeholders = ids.map((_, i) => `$${i + 2}`).join(',');
+        await pool.query(`UPDATE loans SET rejectionNotified = TRUE WHERE user_id = $1 AND id IN (${placeholders})`, [userId, ...ids]);
         res.json({ success:true });
     } catch (e){
         console.error('❌ Error ackRejectionNotifications:', e);
