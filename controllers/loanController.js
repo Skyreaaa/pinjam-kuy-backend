@@ -87,7 +87,7 @@ exports.requestLoan = async (req, res) => {
     try {
         // Cek 1: Batas Maksimal Pinjaman (3 buku aktif)
         const activeLoansResult = await pool.query(
-            'SELECT COUNT(*) as count FROM loan WHERE id_user = $1 AND status IN ($2, $3)', 
+            'SELECT COUNT(*) as count FROM loans WHERE user_id = $1 AND status IN ($2, $3)', 
             [userId, 'Disetujui', 'Sedang Dipinjam']
         );
         if (parseInt(activeLoansResult.rows[0].count) >= 3) {
