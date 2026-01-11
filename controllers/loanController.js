@@ -88,7 +88,7 @@ exports.requestLoan = async (req, res) => {
         // Cek 1: Batas Maksimal Pinjaman (3 buku aktif)
         const activeLoansResult = await pool.query(
             'SELECT COUNT(*) as count FROM loan WHERE id_user = $1 AND status IN ($2, $3)', 
-            [userId, 'pending', 'dipinjam']
+            [userId, 'Disetujui', 'Sedang Dipinjam']
         );
         if (parseInt(activeLoansResult.rows[0].count) >= 3) {
             return res.status(400).json({ message: 'Anda telah mencapai batas maksimal 3 pinjaman aktif/tertunda.' });
@@ -111,7 +111,7 @@ exports.requestLoan = async (req, res) => {
         if (!isDigitalBook) {
             const duplicateResult = await pool.query(
                 'SELECT id_pinjam FROM loan WHERE id_user = $1 AND id_buku = $2 AND status IN ($3, $4)', 
-                [userId, bookId, 'pending', 'dipinjam']
+                [userId, bookId, 'Disetujui', 'Sedang Dipinjam']
             );
             if (duplicateResult.rows.length > 0) {
                 return res.status(400).json({ message: 'Anda sudah meminjam / mengajukan buku fisik ini. Kembalikan buku terlebih dahulu sebelum meminjam lagi.' });
@@ -141,7 +141,7 @@ exports.requestLoan = async (req, res) => {
         const loanDateStr = format(now, 'yyyy-MM-dd HH:mm:ss');
         const approvedAtStr = format(now, 'yyyy-MM-dd HH:mm:ss');
 
-        // Insert loan record (PostgreSQL) - Status langsung 'pending' 
+        // Insert loan record (PostgreSQL) - Status langsung 'Disetujui' (otomatis disetujui)
         const insertSQL = `
             INSERT INTO loan (id_user, id_buku, tanggal_pinjam, tanggal_kembali, status, kodepinjam, purpose) 
             VALUES ($1, $2, $3, $4, $5, $6, $7) 
@@ -152,7 +152,7 @@ exports.requestLoan = async (req, res) => {
             bookId,
             loanDateStr,
             expectedReturnDate, 
-            'pending', // Status PostgreSQL enum
+            'Disetujui', // Status otomatis disetujui (bukan pending)
             kodePinjam, 
             purpose || null
         ]);
