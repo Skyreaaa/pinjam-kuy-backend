@@ -121,7 +121,7 @@ router.get('/broadcast/history', async (req, res) => {
     const pool = req.app.get('dbPool');
     try {
         const result = await pool.query(
-            `SELECT id, user_id, type, message, is_broadcast, read, createdat as "createdAt"
+            `SELECT id, user_id, type, message, is_broadcast, createdat as "createdAt"
              FROM user_notifications 
              WHERE is_broadcast = true 
              ORDER BY createdat DESC 
@@ -154,8 +154,8 @@ router.post('/broadcast', async (req, res) => {
             for (const userId of userIds) {
                 try {
                     await pool.query(
-                        'INSERT INTO user_notifications (user_id, type, message, is_broadcast, read) VALUES ($1, $2, $3, $4, $5)',
-                        [userId, type, message, false, false]
+                        'INSERT INTO user_notifications (user_id, type, message, is_broadcast) VALUES ($1, $2, $3, $4)',
+                        [userId, type, message, false]
                     );
                     // Socket.IO ke user tertentu
                     if (io) {
@@ -174,8 +174,8 @@ router.post('/broadcast', async (req, res) => {
         } else {
             // Broadcast ke semua user
             await pool.query(
-                'INSERT INTO user_notifications (user_id, type, message, is_broadcast, read) VALUES ($1, $2, $3, $4, $5)',
-                [null, type, message, true, false]
+                'INSERT INTO user_notifications (user_id, type, message, is_broadcast) VALUES ($1, $2, $3, $4)',
+                [null, type, message, true]
             );
             
             // Kirim Socket.IO notification
