@@ -1528,29 +1528,29 @@ exports.getUserActivityHistory = async (req, res) => {
         try {
             loansResult = await pool.query(
                 `SELECT 
-                    l.id,
+                    l.id_pinjam AS "id",
                     l.kodepinjam AS "kodePinjam",
-                    l.loandate AS "loanDate",
-                    l.expectedreturndate AS "expectedReturnDate",
-                    l.actualreturndate AS "actualReturnDate",
+                    l.tanggal_pinjam AS "loanDate",
+                    l.tanggal_kembali AS "expectedReturnDate",
+                    l.returnproofuploadedAt AS "actualReturnDate",
                     l.status,
-                    COALESCE(l.fineamount, 0) AS "fineAmount",
-                    l.finepaid AS "finePaid",
-                    COALESCE(l.finereason, '') AS "fineReason",
+                    COALESCE(l.totalfine, 0) AS "fineAmount",
+                    CASE WHEN l.finepaymentstatus = 'paid' THEN true ELSE false END AS "finePaid",
+                    COALESCE(l.fineforcostbook::text, '') AS "fineReason",
                     COALESCE(l.rejectionreason, '') AS "rejectionReason",
-                    l.rejectiondate AS "rejectionDate",
-                    COALESCE(l.adminrejectionproof, '') AS "adminRejectionProof",
-                    l.returnproofurl AS "returnProofUrl",
-                    l.returnproofmetadata AS "returnProofMetadata",
-                    l.createdat AS "createdAt",
-                    b.title AS "bookTitle",
-                    b.author,
-                    b.kodebuku AS "kodeBuku"
-                 FROM loans l
-                 JOIN books b ON l.book_id = b.id
-                 WHERE l.user_id = $1 
-                    AND l.createdat >= $2
-                 ORDER BY l.createdat DESC`,
+                    l.rejectedat AS "rejectionDate",
+                    '' AS "adminRejectionProof",
+                    l.returnproofphoto AS "returnProofUrl",
+                    '{}' AS "returnProofMetadata",
+                    l.created_at AS "createdAt",
+                    b.judul AS "bookTitle",
+                    b.pengarang AS "author",
+                    b.isbn AS "kodeBuku"
+                 FROM loan l
+                 JOIN books b ON l.id_buku = b.id_buku
+                 WHERE l.id_user = $1 
+                    AND l.created_at >= $2
+                 ORDER BY l.created_at DESC`,
                 [userId, twoMonthsAgo]
             );
         } catch (loansError) {
@@ -1570,16 +1570,16 @@ exports.getUserActivityHistory = async (req, res) => {
             paymentsResult = await pool.query(
                 `SELECT 
                     id,
-                    method,
-                    amount_total AS "amountTotal",
-                    status,
-                    created_at AS "createdAt",
-                    verified_at AS "verifiedAt",
-                    admin_notes AS "adminNotes"
-                 FROM fine_payments
-                 WHERE user_id = $1
-                    AND created_at >= $2
-                 ORDER BY created_at DESC`,
+                    'fine_payment' AS "method",
+                    amount_paid AS "amountTotal",
+                    CASE WHEN approved_at IS NOT NULL THEN 'verified' ELSE 'pending' END AS "status",
+                    submitted_at AS "createdAt",
+                    approved_at AS "verifiedAt",
+                    '' AS "adminNotes"
+                 FROM loan_fine_payments
+                 WHERE id_pinjam IN (SELECT id_pinjam FROM loan WHERE id_user = $1)
+                    AND submitted_at >= $2
+                 ORDER BY submitted_at DESC`,
                 [userId, twoMonthsAgo]
             );
         } catch (paymentsError) {
@@ -1608,11 +1608,11 @@ exports.getUserActivityHistory = async (req, res) => {
                     description: `Meminjam buku "${loan.bookTitle || 'Judul tidak tersedia'}"`
                 });
                 
-                // Return activity if returned
-                if (loan.actualReturnDate) {
+                // Return activity if returned (status 'dikembalikan')
+                if (loan.actualReturnDate || loan.status === 'dikembalikan') {
                     activities.push({
                         type: 'return',
-                        date: loan.actualReturnDate,
+                        date: loan.actualReturnDate || loan.createdAt,
                         loanId: loan.id,
                         kodePinjam: loan.kodePinjam || '',
                         bookTitle: loan.bookTitle || 'Judul tidak tersedia',
@@ -1627,8 +1627,8 @@ exports.getUserActivityHistory = async (req, res) => {
                     });
                 }
                 
-                // Return rejection activity if rejected by admin
-                if (loan.rejectionDate && loan.rejectionReason) {
+                // Return rejection activity if rejected by admin (status 'ditolak')
+                if (loan.rejectionDate && loan.rejectionReason && loan.status === 'ditolak') {
                     activities.push({
                         type: 'return_rejected',
                         date: loan.rejectionDate,
