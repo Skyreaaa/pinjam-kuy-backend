@@ -121,10 +121,10 @@ router.get('/broadcast/history', async (req, res) => {
     const pool = req.app.get('dbPool');
     try {
         const result = await pool.query(
-            `SELECT id, user_id, type, message, is_broadcast, read, "createdAt" 
+            `SELECT id, user_id, type, message, is_broadcast, read, createdat as "createdAt"
              FROM user_notifications 
              WHERE is_broadcast = true 
-             ORDER BY "createdAt" DESC 
+             ORDER BY createdat DESC 
              LIMIT 50`
         );
         console.log(`✅ [BROADCAST] Found ${result.rows.length} broadcast messages`);
