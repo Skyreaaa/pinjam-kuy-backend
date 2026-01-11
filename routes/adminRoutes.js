@@ -5,7 +5,6 @@ const router = express.Router();
 const adminController = require('../controllers/adminController'); 
 const loanController = require('../controllers/loanController'); 
 const jwt = require('jsonwebtoken'); 
-router.get('/stats', adminController.getStats);
 // Statistik/Laporan untuk dashboard admin
 router.get('/stats', adminController.getStats);
 router.get('/stats/top-books', adminController.getTopBooks);
@@ -13,6 +12,13 @@ router.get('/stats/monthly-activity', adminController.getMonthlyActivity);
 router.get('/stats/active-loans', adminController.getActiveLoans);
 router.get('/stats/outstanding-fines', adminController.getOutstandingFines);
 router.get('/stats/notification-stats', adminController.getNotificationStats);
+
+// Alias routes without /stats prefix for frontend compatibility
+router.get('/top-books', adminController.getTopBooks);
+router.get('/monthly-activity', adminController.getMonthlyActivity);
+router.get('/active-loans', adminController.getActiveLoans);
+router.get('/outstanding-fines', adminController.getOutstandingFines);
+router.get('/notification-stats', adminController.getNotificationStats);
 
 // === BROADCAST NOTIFIKASI KE SEMUA USER ===
 const UserNotification = require('../models/user_notifications');
