@@ -1483,7 +1483,7 @@ exports.getReturnsForReview = async (req, res) => {
     }
 };
 
-// Get history (Dikembalikan, Ditolak, Selesai, Dibatalkan)
+// Get history (Dikembalikan, Ditolak, Dibatalkan)
 exports.getHistory = async (req, res) => {
     const pool = getDBPool(req);
     try {
@@ -1509,7 +1509,7 @@ exports.getHistory = async (req, res) => {
             FROM loans l
             JOIN users u ON l.user_id = u.id
             JOIN books b ON l.book_id = b.id
-            WHERE l.status IN ('Dikembalikan', 'Ditolak', 'Selesai', 'Dibatalkan User')
+            WHERE l.status IN ('Dikembalikan', 'Ditolak', 'Dibatalkan User')
             ORDER BY COALESCE(l.actualreturndate, l.createdat) DESC
         `);
         
