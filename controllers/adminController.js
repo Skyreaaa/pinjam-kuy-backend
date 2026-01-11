@@ -177,9 +177,28 @@ exports.getHistoryAll = async (req, res) => {
         `);
         
         const rows = result.rows.map(row => ({
-            ...row,
+            id: row.id,
+            loanDate: row.loandate,
+            expectedReturnDate: row.expectedreturndate,
+            actualReturnDate: row.actualreturndate,
+            status: row.status,
+            fineAmount: row.fineamount || 0,
+            finePaid: row.finepaid || 0,
             fineAmountRupiah: row.fineamount ? `Rp ${Number(row.fineamount).toLocaleString('id-ID')}` : 'Rp 0',
-            finePaidRupiah: row.finepaid ? `Rp ${Number(row.finepaid).toLocaleString('id-ID')}` : 'Rp 0'
+            finePaidRupiah: row.finepaid ? `Rp ${Number(row.finepaid).toLocaleString('id-ID')}` : 'Rp 0',
+            returnProofUrl: row.returnproofurl,
+            returnProofMetadata: row.returnproofmetadata,
+            readyReturnDate: row.readyreturndate,
+            approvedAt: row.approvedat,
+            returnDecision: row.returndecision,
+            rejectionReason: row.rejectionreason,
+            createdAt: row.createdat,
+            title: row.title,
+            kodeBuku: row.kodebuku,
+            author: row.author,
+            username: row.username,
+            npm: row.npm,
+            fakultas: row.fakultas
         }));
         
         res.json(rows);
