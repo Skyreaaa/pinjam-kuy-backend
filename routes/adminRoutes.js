@@ -175,22 +175,33 @@ router.post('/broadcast', async (req, res) => {
 // Approval pinjaman dinonaktifkan
 // router.get('/loans/pending', loanController.getPendingLoans); 
 router.get('/loans/pending', (req, res) => res.status(403).json({ message: 'Approval pinjaman dinonaktifkan.' }));
-// =========================================================
-//                       KELOLA PENGGUNA (Menggunakan adminController)
-// =========================================================
-router.get('/users', adminController.getAllUsers);
-router.post('/users', adminController.createUser);
-router.put('/users/:id', adminController.updateUser);
-router.delete('/users/:id', adminController.deleteUser);
-
 
 // =========================================================
-//                       KELOLA DENDA (Menggunakan adminController)
+//                       KELOLA PENGGUNA - TEMPORARILY DISABLED
 // =========================================================
-// Menambah Denda Manual
-router.post('/penalty/apply', adminController.applyPenalty);
-// Mereset Denda (Lunas)
-router.post('/penalty/reset/:id', adminController.resetPenalty); 
+// TODO: Implement these functions in adminController
+// router.get('/users', adminController.getAllUsers);
+// router.post('/users', adminController.createUser);
+// router.put('/users/:id', adminController.updateUser);
+// router.delete('/users/:id', adminController.deleteUser);
+
+// Temporary placeholder for user management
+router.get('/users', async (req, res) => {
+    const pool = req.app.get('dbPool');
+    try {
+        const result = await pool.query('SELECT id, npm, username, role, fakultas, prodi FROM users ORDER BY id DESC');
+        res.json(result.rows || []);
+    } catch (e) {
+        res.status(500).json({ message: 'Error fetching users' });
+    }
+});
+
+// =========================================================
+//                       KELOLA DENDA - TEMPORARILY DISABLED
+// =========================================================
+// TODO: Implement penalty functions
+// // TODO: router.post('/penalty/apply', adminController.applyPenalty);
+// // TODO: router.post('/penalty/reset/:id', adminController.resetPenalty); 
 
 // =========================================================
 //              VERIFIKASI PEMBAYARAN DENDA (Baru)
