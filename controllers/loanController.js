@@ -1568,7 +1568,10 @@ exports.getUserActivityHistory = async (req, res) => {
         const twoMonthsAgo = new Date();
         twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
         
-        console.log('[ACTIVITY_HISTORY] Fetching activities since:', twoMonthsAgo);
+        // Convert to PostgreSQL timestamp format
+        const twoMonthsAgoStr = twoMonthsAgo.toISOString();
+        
+        console.log('[ACTIVITY_HISTORY] Fetching activities since:', twoMonthsAgoStr);
         
 
         // Get all loans from last 2 months with book info and admin rejection proof (PostgreSQL)
@@ -1599,7 +1602,7 @@ exports.getUserActivityHistory = async (req, res) => {
                  WHERE l.user_id = $1 
                     AND l.createdat >= $2
                  ORDER BY l.createdat DESC`,
-                [userId, twoMonthsAgo]
+                [userId, twoMonthsAgoStr]
             );
         } catch (loansError) {
             console.error('[ACTIVITY_HISTORY] Error fetching loans:', loansError);
@@ -1629,7 +1632,7 @@ exports.getUserActivityHistory = async (req, res) => {
                  WHERE user_id = $1
                     AND created_at >= $2
                  ORDER BY created_at DESC`,
-                [userId, twoMonthsAgo]
+                [userId, twoMonthsAgoStr]
             );
         } catch (paymentsError) {
             console.error('[ACTIVITY_HISTORY] Error fetching payments:', paymentsError);
