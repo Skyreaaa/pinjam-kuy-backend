@@ -560,7 +560,7 @@ exports.approveLoan = async (req, res) => {
         }
         // Set status Disetujui, set approvedAt, jangan set loanDate di tahap ini
         const result = await pool.query(
-            "UPDATE loans SET status = 'Disetujui', expectedReturnDate = $1, approvedAt = $2, userNotified = 0 WHERE id =: AND status = 'Menunggu Persetujuan'",
+            "UPDATE loans SET status = 'Disetujui', expectedReturnDate = $1, approvedAt = $2, userNotified = FALSE WHERE id = $3 AND status = 'Menunggu Persetujuan'",
             [expected, now, loanId]
         );
         if (result.rowCount === 0) {
@@ -740,7 +740,7 @@ exports.rejectLoan = async (req, res) => {
 
         // 1. Update status pinjaman
         const result = await pool.query(
-            "UPDATE loans SET status = $1, rejectionDate = $2, rejectionNotified = 0 WHERE id = $3 AND status = 'Menunggu Persetujuan'",
+            "UPDATE loans SET status = $1, rejectionDate = $2, rejectionNotified = FALSE WHERE id = $3 AND status = 'Menunggu Persetujuan'",
             ['Ditolak', new Date(), loanId]
         );
         
@@ -796,7 +796,7 @@ exports.processReturn = async (req, res) => {
 
         // 2. Update status pinjaman menjadi 'Dikembalikan', simpan denda & tanggal pengembalian
         await pool.query(
-            "UPDATE loans SET status = $1, actualReturnDate = $2, fineAmount = $3, finePaid = $4, returnNotified = 0, returnDecision = 'approved', fineReason = $5 WHERE id = $6",
+            "UPDATE loans SET status = $1, actualReturnDate = $2, fineAmount = $3, finePaid = $4, returnNotified = FALSE, returnDecision = 'approved', fineReason = $5 WHERE id = $6",
             ['Dikembalikan', actualReturnDate, totalFine, 0, fineReason, loanId] // finePaid 0 karena belum dibayar
         );
         
@@ -901,7 +901,7 @@ exports.rejectReturnProof = async (req, res) => {
         const nextStatus = (due && now > due) ? 'Terlambat' : 'Sedang Dipinjam';
 
         await pool.query(
-            `UPDATE loans SET status=?, returnProofUrl=NULL, readyReturnDate=NULL, returnNotified = 0, returnDecision = 'rejected', rejectionReason=?, rejectionDate=CURRENT_TIMESTAMP WHERE id=?`,
+            `UPDATE loans SET status=$1, returnProofUrl=NULL, readyReturnDate=NULL, returnNotified = FALSE, returnDecision = 'rejected', rejectionReason=$2, rejectionDate=CURRENT_TIMESTAMP WHERE id=$3`,
             [nextStatus, reason, loanId]
         );
 
@@ -972,7 +972,7 @@ exports.getApprovalNotifications = async (req, res) => {
     try {
         const _pgResult = await pool.query(
             `SELECT id, book_id, approvedAt, status, kodePinjam FROM loans 
-             WHERE user_id = $1 AND approvedAt IS NOT NULL AND userNotified = 0 AND status IN ('Sedang Dipinjam','Diambil','Disetujui')
+             WHERE user_id = $1 AND approvedAt IS NOT NULL AND userNotified = FALSE AND status IN ('Sedang Dipinjam','Diambil','Disetujui')
              ORDER BY approvedAt DESC LIMIT 20`,
             [userId]
         );
@@ -1011,7 +1011,7 @@ exports.getReturnNotifications = async (req, res) => {
             `SELECT l.id, l.status, l.returnDecision, l.actualReturnDate, l.fineAmount, b.title AS bookTitle
              FROM loans l
              JOIN books b ON l.book_id = b.id
-             WHERE l.user_id = $1 AND l.returnNotified = 0 AND l.returnDecision IS NOT NULL
+             WHERE l.user_id = $1 AND l.returnNotified = FALSE AND l.returnDecision IS NOT NULL
              ORDER BY l.actualReturnDate DESC LIMIT 20`,
             [userId]
         );
@@ -1095,7 +1095,7 @@ exports.getRejectionNotifications = async (req, res) => {
             `SELECT l.id, l.status, l.rejectionDate, b.title AS bookTitle
              FROM loans l
              JOIN books b ON l.book_id = b.id
-             WHERE l.user_id = $1 AND l.status = 'Ditolak' AND l.rejectionDate IS NOT NULL AND (l.rejectionNotified = 0 OR l.rejectionNotified IS NULL)
+             WHERE l.user_id = $1 AND l.status = 'Ditolak' AND l.rejectionDate IS NOT NULL AND (l.rejectionNotified = FALSE OR l.rejectionNotified IS NULL)
              ORDER BY l.rejectionDate DESC LIMIT 20`,
             [userId]
         );
