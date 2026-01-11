@@ -89,9 +89,10 @@ exports.deletePhoto = async (req, res) => {
     const { npm } = req.userData;
 
     try {
-        const [oldRows] = await pool.query('SELECT profile_photo_url FROM users WHERE npm = $1', [npm]);
+        const oldResult = await pool.query('SELECT profile_photo_url FROM users WHERE npm = $1', [npm]);
+        const oldRows = oldResult.rows;
         const oldPhotoUrl = oldRows[0]?.profile_photo_url;
-        
+
         const _pgResult = await pool.query('UPDATE users SET profile_photo_url = NULL WHERE npm = $1', [npm]);
         const result = _pgResult.rows;
 

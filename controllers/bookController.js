@@ -38,7 +38,9 @@ exports.getAllBooks = async (req, res) => {
 
     // popular: based on total loans count (descending)
     // newest: based on publicationYear (desc) then id desc
-    let baseSelect = `SELECT b.id, b.title, b.kodeBuku, b.author, b.publisher, b.publicationYear, b.totalStock, b.availableStock, b.category, b.image_url, b.location, b.description, b.programStudi, b.bahasa, b.jenisKoleksi, b.lampiran, b.attachment_url, b.pemusatanMateri, b.pages,
+    let baseSelect = `SELECT b.id, b.title, b.kodeBuku, b.author, b.publisher, b.publicationYear, 
+        b.totalStock AS totalstock, b.availableStock AS availablestock, 
+        b.category, b.image_url, b.location, b.description, b.programStudi, b.bahasa, b.jenisKoleksi, b.lampiran, b.attachment_url, b.pemusatanMateri, b.pages,
         (SELECT COUNT(*) FROM loans l WHERE l.book_id = b.id) AS borrowCount
         FROM books b WHERE 1=1`;
     let params = [];
