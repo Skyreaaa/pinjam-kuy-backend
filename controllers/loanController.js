@@ -106,7 +106,6 @@ exports.requestLoan = async (req, res) => {
 
         // Tentukan tanggal pinjam & estimasi kembali
         const now = new Date();
-        const loanDate = format(now, 'yyyy-MM-dd HH:mm:ss');
         let expectedReturnDate = null;
         
         if (!isDigitalBook && returnDate) {
@@ -124,18 +123,17 @@ exports.requestLoan = async (req, res) => {
         const datePart = format(now, 'yyyyMMdd');
         const kodePinjam = `KP-${datePart}-${randomPart}`;
 
-        // Insert loan record (PostgreSQL)
+        // Insert loan record (PostgreSQL) - Status awal: Menunggu Persetujuan
         const insertSQL = `
-            INSERT INTO loans (user_id, book_id, loandate, expectedreturndate, status, kodepinjam, purpose) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7) 
+            INSERT INTO loans (user_id, book_id, expectedreturndate, status, kodepinjam, purpose) 
+            VALUES ($1, $2, $3, $4, $5, $6) 
             RETURNING id
         `;
         const result = await pool.query(insertSQL, [
             userId, 
             bookId, 
-            loanDate, 
             expectedReturnDate, 
-            'Disetujui', 
+            'Menunggu Persetujuan', 
             kodePinjam, 
             purpose || null
         ]);
@@ -146,9 +144,9 @@ exports.requestLoan = async (req, res) => {
         const loanPayload = {
             id: result.rows[0].id,
             bookTitle: book.title,
-            loanDate,
+            loanDate: null, // Belum diambil, akan di-set saat scan QR
             expectedReturnDate,
-            status: 'Disetujui',
+            status: 'Menunggu Persetujuan',
             kodePinjam,
         };
         if (purpose) loanPayload.purpose = purpose;
@@ -168,7 +166,7 @@ exports.requestLoan = async (req, res) => {
         
         res.json({
             success: true,
-            message: `Permintaan pinjaman buku "${book.title}" berhasil. Kode pinjam sudah aktif, Anda dapat langsung mengambil buku.`,
+            message: `Permintaan pinjaman buku "${book.title}" berhasil diajukan. Menunggu persetujuan admin.`,
             loan: loanPayload
         });
 
@@ -592,7 +590,7 @@ exports.scanLoan = async (req, res) => {
     if (!kodePinjam) return res.status(400).json({ message:'kodePinjam diperlukan.' });
     try {
         const _pgResult = await pool.query(`
-            SELECT l.id, l.status, l.loanDate, l.book_id as bookId, l.user_id as userId,
+            SELECT l.id, l.status, l.loanDate, l.approvedAt, l.book_id as bookId, l.user_id as userId,
                    b.title as bookTitle,
                    u.username as borrowerName
             FROM loans l
@@ -614,22 +612,20 @@ exports.scanLoan = async (req, res) => {
             });
         }
         
-        // Check QR expiry: loanDate + 24h
-        if (!loan.loanDate) return res.status(400).json({ 
-            message:'QR tidak valid (loanDate kosong).',
-            bookTitle: loan.bookTitle || 'Tidak Diketahui',
-            borrowerName: loan.borrowerName || 'Tidak Diketahui'
-        });
-        const loanTime = new Date(loan.loanDate).getTime();
-        const nowTime = Date.now();
-        if (nowTime > loanTime + 24 * 60 * 60 * 1000) {
-            return res.status(400).json({ 
-                message:'QR Expired. Kode pinjam sudah melewati masa berlaku 24 jam.',
-                bookTitle: loan.bookTitle || 'Tidak Diketahui',
-                borrowerName: loan.borrowerName || 'Tidak Diketahui',
-                loanDate: loan.loanDate
-            });
+        // Check QR expiry based on approvedAt + 24h
+        if (loan.approvedAt) {
+            const approvedTime = new Date(loan.approvedAt).getTime();
+            const nowTime = Date.now();
+            if (nowTime > approvedTime + 24 * 60 * 60 * 1000) {
+                return res.status(400).json({ 
+                    message:'QR Expired. Kode pinjam sudah melewati masa berlaku 24 jam sejak disetujui.',
+                    bookTitle: loan.bookTitle || 'Tidak Diketahui',
+                    borrowerName: loan.borrowerName || 'Tidak Diketahui',
+                    approvedAt: loan.approvedAt
+                });
+            }
         }
+        
         const now = new Date();
         await pool.query("UPDATE loans SET status = 'Diambil', loanDate = $1 WHERE id = $2", [now, loan.id]);
         
