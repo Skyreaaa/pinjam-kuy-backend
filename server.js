@@ -264,6 +264,7 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/push', pushRoutes);
 
 // Alias routes without /api prefix for frontend compatibility
+app.use('/admin', adminRoutes); // Alias for admin routes
 app.use('/loans', loanRoutes);
 app.use('/books', bookRoutes);
 app.use('/profile', profileRoutes);

@@ -233,19 +233,19 @@ exports.updateBook = async (req, res) => {
         // No transactions for now
 
         // 1. Cek duplikasi Kode Buku (kecuali untuk buku ini sendiri)
-        const duplicateResult = await pool.query('SELECT id FROM books WHERE kodeBuku = $2 AND id != $3', [kodeBuku, bookId]);
+        const duplicateResult = await pool.query('SELECT id FROM books WHERE kodeBuku = $1 AND id != $2', [kodeBuku, bookId]);
         if (duplicateResult.rows && duplicateResult.rows.length > 0) {
             // No rollback
             return res.status(400).json({ message: 'Kode Buku sudah digunakan oleh buku lain.' });
         }
         
         // 2. Ambil data lama
-        const oldBookResult = await pool.query('SELECT totalStock, availableStock, image_url, attachment_url FROM books WHERE id = $1', [bookId]);
+        const oldBookResult = await pool.query('SELECT totalstock, availablestock, image_url, attachment_url FROM books WHERE id = $1', [bookId]);
         if (!oldBookResult.rows || oldBookResult.rows.length === 0) {
             // No rollback
             return res.status(404).json({ message: 'Buku tidak ditemukan.' });
         }
-        const { totalStock: oldTotalStock, availableStock: oldAvailableStock, image_url: oldImageUrl, attachment_url: oldAttachmentUrl } = oldBookResult.rows[0];
+        const { totalstock: oldTotalStock, availablestock: oldAvailableStock, image_url: oldImageUrl, attachment_url: oldAttachmentUrl } = oldBookResult.rows[0];
         
         const newTotalStock = parseInt(totalStock);
         const stockDifference = newTotalStock - oldTotalStock;
@@ -272,7 +272,7 @@ exports.updateBook = async (req, res) => {
         // Build dynamic update query with PostgreSQL placeholders
         const updates = [
             'title = $1', 'kodeBuku = $2', 'author = $3', 'publisher = $4', 'publicationYear = $5',
-            'totalStock = $6', 'availableStock = $7', 'category = $8', 'image_url = $9',
+            'totalstock = $6', 'availablestock = $7', 'category = $8', 'image_url = $9',
             'description = $10', 'location = $11'
         ];
         const values = [
