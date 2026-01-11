@@ -598,7 +598,7 @@ exports.scanLoan = async (req, res) => {
             FROM loans l
             LEFT JOIN books b ON l.book_id = b.id
             LEFT JOIN users u ON l.user_id = u.id
-            WHERE l.kodePinjam =: LIMIT 1
+            WHERE l.kodePinjam = $1 LIMIT 1
         `, [kodePinjam]);
         const rows = _pgResult.rows;
         if (!rows.length) return res.status(404).json({ message:'Kode tidak ditemukan.' });
@@ -631,7 +631,7 @@ exports.scanLoan = async (req, res) => {
             });
         }
         const now = new Date();
-        await pool.query("UPDATE loans SET status = 'Diambil', loanDate =: WHERE id = $2", [now, loan.id]);
+        await pool.query("UPDATE loans SET status = 'Diambil', loanDate = $1 WHERE id = $2", [now, loan.id]);
         
         // Kirim notifikasi real-time ke user via Socket.IO
         try {
