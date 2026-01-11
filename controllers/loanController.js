@@ -591,8 +591,8 @@ exports.scanLoan = async (req, res) => {
     try {
         const _pgResult = await pool.query(`
             SELECT l.id, l.status, l.loanDate, l.approvedAt, l.book_id as bookId, l.user_id as userId,
-                   b.title as bookTitle,
-                   u.username as borrowerName
+                   b.title as "bookTitle",
+                   u.username as "borrowerName"
             FROM loans l
             LEFT JOIN books b ON l.book_id = b.id
             LEFT JOIN users u ON l.user_id = u.id
