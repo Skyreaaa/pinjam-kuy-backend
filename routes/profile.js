@@ -14,11 +14,16 @@ const getDBPool = (req) => req.app.get('dbPool');
 
 // GET /api/user/notifications - Get user notifications
 router.get('/notifications', async (req, res) => {
+    const pool = getDBPool(req);
     const { id } = req.userData || {};
     if (!id) return res.status(401).json({ success: false, message: 'Token tidak valid.' });
     
     try {
-        const notifications = await UserNotification.getForUser(id, 50);
+        const result = await pool.query(
+            'SELECT * FROM user_notifications WHERE user_id IS NULL OR user_id = $1 ORDER BY createdAt DESC LIMIT 30',
+            [id]
+        );
+        const notifications = result.rows;
         res.json({ success: true, data: notifications });
     } catch (error) {
         console.error('Error fetching user notifications:', error);
