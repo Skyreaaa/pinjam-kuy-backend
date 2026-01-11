@@ -115,6 +115,26 @@ router.delete('/users/:id', async (req, res) => {
     }
 });
 
+// Get broadcast history
+router.get('/broadcast/history', async (req, res) => {
+    console.log('📊 [BROADCAST] Get history request');
+    const pool = req.app.get('dbPool');
+    try {
+        const result = await pool.query(
+            `SELECT id, user_id, type, message, is_broadcast, read, "createdAt" 
+             FROM user_notifications 
+             WHERE is_broadcast = true 
+             ORDER BY "createdAt" DESC 
+             LIMIT 50`
+        );
+        console.log(`✅ [BROADCAST] Found ${result.rows.length} broadcast messages`);
+        res.json({ success: true, items: result.rows });
+    } catch (err) {
+        console.error('[ADMIN][BROADCAST][HISTORY] Error:', err);
+        res.status(500).json({ success: false, message: 'Gagal mengambil riwayat broadcast: ' + err.message });
+    }
+});
+
 // Broadcast route (harus setelah authenticateAdmin)
 router.post('/broadcast', async (req, res) => {
     console.log('📢 [BROADCAST] Received request:', req.body);
