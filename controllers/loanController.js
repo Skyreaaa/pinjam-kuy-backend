@@ -227,10 +227,11 @@ exports.getUserLoanHistory = async (req, res) => {
                 b.title, b.author, b.kodeBuku, b.image_url, b.location, b.lampiran, b.attachment_url
             FROM loans l
             JOIN books b ON l.book_id = b.id
-            WHERE l.user_id = ?
+            WHERE l.user_id = $1
             ORDER BY l.loanDate DESC
         `;
-        const [loans] = await pool.query(query, [userId]);
+        const result = await pool.query(query, [userId]);
+        const loans = result.rows;
         
         // Cek dan update status pinjaman jika terlambat (auto-update status "Sedang Dipinjam" ke "Terlambat")
         const today = new Date();
@@ -269,10 +270,11 @@ exports.getUserLoans = async (req, res) => {
         selectParts.push('b.title as bookTitle','b.kodeBuku','b.author','b.location','b.lampiran','b.attachment_url');
         
         // Backfill sebelum select (non-blok karena sederhana)
-        try { await backfillMissingKodePinjam(connection); } catch (bfErr) { console.warn('[LOAN][BACKFILL] gagal:', bfErr.message); }
+        try { await backfillMissingKodePinjam(pool); } catch (bfErr) { console.warn('[LOAN][BACKFILL] gagal:', bfErr.message); }
         
-        const query = `SELECT ${selectParts.join(', ')} FROM loans l JOIN books b ON l.book_id = b.id WHERE l.user_id = ? ORDER BY l.loanDate DESC`;
-        const [rows] = await pool.query(query, [userId]);
+        const query = `SELECT ${selectParts.join(', ')} FROM loans l JOIN books b ON l.book_id = b.id WHERE l.user_id = $1 ORDER BY l.loanDate DESC`;
+        const result = await pool.query(query, [userId]);
+        const rows = result.rows;
         
         // Auto-cancel expired QR codes
         const now = new Date();
@@ -725,10 +727,11 @@ exports.rejectLoan = async (req, res) => {
         // No transactions for now
 
         // Ambil info buku & user sebelum update status
-        const [loanInfo] = await pool.query(`
+        const loanInfoResult = await pool.query(`
             SELECT l.book_id, b.title 
             FROM loans l JOIN books b ON l.book_id = b.id 
-            WHERE l.id = ? AND l.status = 'Menunggu Persetujuan'`, [loanId]);
+            WHERE l.id = $1 AND l.status = 'Menunggu Persetujuan'`, [loanId]);
+        const loanInfo = loanInfoResult.rows;
 
         if (loanInfo.length === 0) {
             // No rollback
@@ -737,7 +740,7 @@ exports.rejectLoan = async (req, res) => {
 
         // 1. Update status pinjaman
         const result = await pool.query(
-            "UPDATE loans SET status = ?, rejectionDate = ?, rejectionNotified = 0 WHERE id = ? AND status = 'Menunggu Persetujuan'",
+            "UPDATE loans SET status = $1, rejectionDate = $2, rejectionNotified = 0 WHERE id = $3 AND status = 'Menunggu Persetujuan'",
             ['Ditolak', new Date(), loanId]
         );
         
@@ -793,14 +796,14 @@ exports.processReturn = async (req, res) => {
 
         // 2. Update status pinjaman menjadi 'Dikembalikan', simpan denda & tanggal pengembalian
         await pool.query(
-            "UPDATE loans SET status = ?, actualReturnDate = ?, fineAmount = ?, finePaid = ?, returnNotified = 0, returnDecision = 'approved', fineReason = ? WHERE id = ?",
+            "UPDATE loans SET status = $1, actualReturnDate = $2, fineAmount = $3, finePaid = $4, returnNotified = 0, returnDecision = 'approved', fineReason = $5 WHERE id = $6",
             ['Dikembalikan', actualReturnDate, totalFine, 0, fineReason, loanId] // finePaid 0 karena belum dibayar
         );
         
         // 3. Tambahkan total denda ke akun user
         let totalNewFine = 0;
        if (totalFine > 0) {
-           await pool.query('UPDATE users SET denda = denda + $1, denda_unpaid = denda_unpaid +: WHERE id = $3', [totalFine, totalFine, user_id]);
+           await pool.query('UPDATE users SET denda = denda + $1, denda_unpaid = denda_unpaid + $2 WHERE id = $3', [totalFine, totalFine, user_id]);
            totalNewFine = totalFine;
        }
 
