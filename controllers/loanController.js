@@ -355,10 +355,10 @@ exports.cancelLoan = async (req, res) => {
             return res.status(400).json({ message: 'Peminjaman tidak dapat dibatalkan pada status ini.' });
         }
 
-        // Update status menjadi Dibatalkan User (cancelled by user)
+        // Update status menjadi Ditolak (cancelled by user)
         await pool.query(
             'UPDATE loans SET status = $1 WHERE id = $2',
-            ['Dibatalkan User', loanId]
+            ['Ditolak', loanId]
         );
 
         // Kembalikan stok buku
