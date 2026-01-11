@@ -87,30 +87,31 @@ exports.requestLoan = async (req, res) => {
     try {
         // Cek 1: Batas Maksimal Pinjaman (3 buku aktif)
         const activeLoansResult = await pool.query(
-            'SELECT COUNT(*) as count FROM loans WHERE user_id = $1 AND status IN ($2, $3, $4, $5)', 
-            [userId, 'Menunggu Persetujuan', 'Disetujui', 'Diambil', 'Sedang Dipinjam']
+            'SELECT COUNT(*) as count FROM loan WHERE id_user = $1 AND status IN ($2, $3)', 
+            [userId, 'pending', 'dipinjam']
         );
         if (parseInt(activeLoansResult.rows[0].count) >= 3) {
             return res.status(400).json({ message: 'Anda telah mencapai batas maksimal 3 pinjaman aktif/tertunda.' });
         }
         
-        // Cek 2: Ketersediaan Stok & Info Buku
+        // Cek 2: Ketersediaan Stok & Info Buku (PostgreSQL schema uses different column names)
         const bookResult = await pool.query(
-            'SELECT title, availablestock, lampiran, attachment_url FROM books WHERE id = $1', 
+            'SELECT judul, stok, description FROM books WHERE id_buku = $1', 
             [bookId]
         );
-        if (bookResult.rows.length === 0 || bookResult.rows[0].availablestock <= 0) {
+        );
+        if (bookResult.rows.length === 0 || bookResult.rows[0].stok <= 0) {
             return res.status(400).json({ message: 'Stok buku tidak tersedia.' });
         }
         
         const book = bookResult.rows[0];
-        const isDigitalBook = book.lampiran && book.lampiran !== 'Tidak Ada' && book.attachment_url;
+        const isDigitalBook = false; // Assume no digital books in PostgreSQL version for now
         
         // Cek 3: Duplikasi Permintaan (hanya untuk buku fisik)
         if (!isDigitalBook) {
             const duplicateResult = await pool.query(
-                'SELECT id FROM loans WHERE user_id = $1 AND book_id = $2 AND status IN ($3, $4, $5, $6)', 
-                [userId, bookId, 'Menunggu Persetujuan', 'Disetujui', 'Diambil', 'Sedang Dipinjam']
+                'SELECT id_pinjam FROM loan WHERE id_user = $1 AND id_buku = $2 AND status IN ($3, $4)', 
+                [userId, bookId, 'pending', 'dipinjam']
             );
             if (duplicateResult.rows.length > 0) {
                 return res.status(400).json({ message: 'Anda sudah meminjam / mengajukan buku fisik ini. Kembalikan buku terlebih dahulu sebelum meminjam lagi.' });
@@ -140,32 +141,31 @@ exports.requestLoan = async (req, res) => {
         const loanDateStr = format(now, 'yyyy-MM-dd HH:mm:ss');
         const approvedAtStr = format(now, 'yyyy-MM-dd HH:mm:ss');
 
-        // Insert loan record (PostgreSQL) - Status langsung 'Disetujui' dengan loanDate & approvedAt
+        // Insert loan record (PostgreSQL) - Status langsung 'pending' 
         const insertSQL = `
-            INSERT INTO loans (user_id, book_id, loandate, expectedreturndate, status, kodepinjam, purpose, approvedat) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
-            RETURNING id
+            INSERT INTO loan (id_user, id_buku, tanggal_pinjam, tanggal_kembali, status, kodepinjam, purpose) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7) 
+            RETURNING id_pinjam as id
         `;
         const result = await pool.query(insertSQL, [
             userId, 
             bookId,
             loanDateStr,
             expectedReturnDate, 
-            'Disetujui', // Langsung disetujui otomatis
+            'pending', // Status PostgreSQL enum
             kodePinjam, 
-            purpose || null,
-            approvedAtStr
+            purpose || null
         ]);
 
-        // Kurangi Stok Tersedia
-        await pool.query('UPDATE books SET availablestock = availablestock - 1 WHERE id = $1', [bookId]);
+        // Kurangi Stok Tersedia (PostgreSQL schema uses 'stok' not 'availablestock')
+        await pool.query('UPDATE books SET stok = stok - 1 WHERE id_buku = $1', [bookId]);
 
         const loanPayload = {
             id: result.rows[0].id,
-            bookTitle: book.title,
+            bookTitle: book.judul || book.title,
             loanDate: loanDateStr, // QR sudah aktif
             expectedReturnDate,
-            status: 'Disetujui',
+            status: 'pending',
             kodePinjam,
         };
         if (purpose) loanPayload.purpose = purpose;
@@ -176,7 +176,7 @@ exports.requestLoan = async (req, res) => {
             if (io) {
                 // Notif ke user bahwa QR code sudah siap
                 io.to(`user_${userId}`).emit('notification', {
-                    message: `QR Code untuk buku "${book.title}" sudah siap! Tunjukkan ke petugas untuk mengambil buku.`,
+                    message: `QR Code untuk buku "${book.judul || book.title}" sudah siap! Tunjukkan ke petugas untuk mengambil buku.`,
                     type: 'success',
                     loanId: result.rows[0].id,
                     kodePinjam: kodePinjam
@@ -184,7 +184,7 @@ exports.requestLoan = async (req, res) => {
                 
                 // Notif ke admin bahwa ada pinjaman baru yang siap di-scan
                 io.to('admins').emit('notification', {
-                    message: `Pinjaman baru: Buku "${book.title}" oleh user ID ${userId}. QR: ${kodePinjam}`,
+                    message: `Pinjaman baru: Buku "${book.judul || book.title}" oleh user ID ${userId}. QR: ${kodePinjam}`,
                     type: 'info',
                 });
             }
@@ -655,46 +655,80 @@ exports.scanLoan = async (req, res) => {
     const pool = getDBPool(req);
     const { kodePinjam } = req.body;
     if (!kodePinjam) return res.status(400).json({ message:'kodePinjam diperlukan.' });
+    
     try {
-        const _pgResult = await pool.query(`
-            SELECT l.id, l.status, l.loanDate, l.approvedAt, l.book_id as bookId, l.user_id as userId,
-                   b.title as "bookTitle",
-                   u.username as "borrowerName"
-            FROM loans l
-            LEFT JOIN books b ON l.book_id = b.id
-            LEFT JOIN users u ON l.user_id = u.id
-            WHERE l.kodePinjam = $1 LIMIT 1
-        `, [kodePinjam]);
-        const rows = _pgResult.rows;
-        if (!rows.length) return res.status(404).json({ message:'Kode tidak ditemukan.' });
-        const loan = rows[0];
+        console.log('[SCAN_LOAN] Scanning kodePinjam:', kodePinjam);
         
-        // Jika status bukan 'Disetujui', kembalikan error dengan detail
-        if (loan.status !== 'Disetujui') {
+        const _pgResult = await pool.query(`
+            SELECT 
+                l.id_pinjam as id, 
+                l.status, 
+                l.tanggal_pinjam as "loanDate", 
+                l.created_at as "approvedAt", 
+                l.id_buku as "bookId", 
+                l.id_user as "userId",
+                b.judul as "bookTitle",
+                u.fullname as "borrowerName",
+                u.username
+            FROM loan l
+            LEFT JOIN books b ON l.id_buku = b.id_buku
+            LEFT JOIN "user" u ON l.id_user = u.id_user
+            WHERE l.kodepinjam = $1 LIMIT 1
+        `, [kodePinjam]);
+        console.log('[SCAN_LOAN] Query result:', _pgResult.rows.length, 'rows found');
+        const rows = _pgResult.rows;
+        if (!rows.length) {
+            console.log('[SCAN_LOAN] QR code not found:', kodePinjam);
+            return res.status(404).json({ 
+                message:'Kode QR tidak ditemukan dalam sistem.', 
+                kodePinjam 
+            });
+        }
+        
+        const loan = rows[0];
+        console.log('[SCAN_LOAN] Found loan:', { id: loan.id, status: loan.status, bookTitle: loan.bookTitle });
+        
+        // Jika status bukan 'pending' (status 'dipinjam' = sedang dipinjam), kembalikan error dengan detail
+        if (loan.status !== 'pending') {
+            console.log('[SCAN_LOAN] Invalid status:', loan.status);
             return res.status(400).json({ 
-                message: `Status sekarang '${loan.status}'. Hanya 'Disetujui' yang bisa discan untuk pengambilan.`,
+                message: `Status sekarang '${loan.status}'. Hanya 'pending' yang bisa discan untuk pengambilan.`,
                 bookTitle: loan.bookTitle || 'Tidak Diketahui',
-                borrowerName: loan.borrowerName || 'Tidak Diketahui',
+                borrowerName: loan.borrowerName || loan.username || 'Tidak Diketahui',
                 currentStatus: loan.status
             });
         }
         
-        // Check QR expiry based on approvedAt + 24h
+        // Check QR expiry based on created_at + 24h (PostgreSQL doesn't have approvedAt concept)
         if (loan.approvedAt) {
             const approvedTime = new Date(loan.approvedAt).getTime();
             const nowTime = Date.now();
-            if (nowTime > approvedTime + 24 * 60 * 60 * 1000) {
+            const expiryTime = approvedTime + 24 * 60 * 60 * 1000; // 24 hours
+            
+            if (nowTime > expiryTime) {
+                console.log('[SCAN_LOAN] QR expired:', { approvedAt: loan.approvedAt, nowTime, expiryTime });
+                // Auto-cancel expired QR
+                await pool.query(`UPDATE loan SET status = 'ditolak' WHERE id_pinjam = $1`, [loan.id]);
+                
+                // Return stock (increment stok in books table)
+                await pool.query(`UPDATE books SET stok = stok + 1 WHERE id_buku = $1`, [loan.bookId]);
+                
                 return res.status(400).json({ 
-                    message:'QR Expired. Kode pinjam sudah melewati masa berlaku 24 jam sejak disetujui.',
+                    message: 'QR Expired! Kode QR sudah kedaluwarsa (lebih dari 24 jam). Silakan buat pinjaman baru.',
                     bookTitle: loan.bookTitle || 'Tidak Diketahui',
-                    borrowerName: loan.borrowerName || 'Tidak Diketahui',
-                    approvedAt: loan.approvedAt
+                    borrowerName: loan.borrowerName || loan.username || 'Tidak Diketahui'
                 });
             }
         }
         
+        console.log('[SCAN_LOAN] Updating loan status to dipinjam...');
         const now = new Date();
-        await pool.query("UPDATE loans SET status = 'Diambil', loanDate = $1 WHERE id = $2", [now, loan.id]);
+        
+        // Update status dari 'pending' ke 'dipinjam' dan set tanggal_pinjam
+        await pool.query(
+            `UPDATE loan SET status = 'dipinjam', tanggal_pinjam = $1 WHERE id_pinjam = $2`,
+            [now, loan.id]
+        );
         
         // Kirim notifikasi real-time ke user via Socket.IO
         try {
@@ -733,10 +767,10 @@ exports.scanLoan = async (req, res) => {
         
         res.json({ 
             success: true, 
-            message: 'Scan berhasil. Buku ditandai Diambil.', 
+            message: 'Scan berhasil. Buku ditandai sedang dipinjam.', 
             loanId: loan.id,
             bookTitle: loan.bookTitle || 'Tidak Diketahui',
-            borrowerName: loan.borrowerName || 'Tidak Diketahui',
+            borrowerName: loan.borrowerName || loan.username || 'Tidak Diketahui',
             loanDate: now.toISOString()
         });
     } catch (e){
