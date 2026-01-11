@@ -363,10 +363,12 @@ exports.cancelLoan = async (req, res) => {
 
         // Kembalikan stok buku
         await pool.query(
-            'UPDATE books SET availableStock = availableStock + 1 WHERE id = $1',
+            'UPDATE books SET availablestock = availablestock + 1 WHERE id = $1',
             [loan.book_id]
         );
 
+        console.log(`✅ [cancelLoan] Loan ${loanId} cancelled successfully by user ${userId}`);
+        
         // No commit
         res.json({ success: true, message: 'Peminjaman berhasil dibatalkan.' });
     } catch (error) {
