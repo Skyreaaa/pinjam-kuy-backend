@@ -1,5 +1,4 @@
-// Web-push tidak digunakan lagi, diganti dengan Socket.IO real-time notifications
-// const webpush = require('web-push');
+const webpush = require('web-push');
 
 // VAPID keys configuration
 // Generate your own keys by running: npx web-push generate-vapid-keys
