@@ -90,11 +90,11 @@ router.post('/users', async (req, res) => {
 router.put('/users/:id', async (req, res) => {
     const pool = req.app.get('dbPool');
     const { id } = req.params;
-    const { npm, username, role } = req.body;
+    const { npm, username, role, fakultas, prodi, angkatan } = req.body;
     try {
         const result = await pool.query(
-            'UPDATE users SET npm = $1, username = $2, role = $3 WHERE id = $4 RETURNING *',
-            [npm, username, role, id]
+            'UPDATE users SET npm = $1, username = $2, role = $3, fakultas = $4, prodi = $5, angkatan = $6 WHERE id = $7 RETURNING *',
+            [npm, username, role, fakultas || null, prodi || null, angkatan || null, id]
         );
         res.json({ success: true, user: result.rows[0] });
     } catch (error) {

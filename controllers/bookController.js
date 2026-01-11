@@ -71,10 +71,32 @@ exports.getAllBooks = async (req, res) => {
     try {
         const _pgResult = await pool.query(baseSelect, params);
         const rows = _pgResult.rows;
-        // Gunakan URL Cloudinary langsung (tanpa prefix lokal)
+        // Map to camelCase for frontend compatibility
         const booksWithFullPath = rows.map(book => ({
-            ...book,
-            image_url: book.image_url || null
+            id: book.id,
+            title: book.title,
+            judul: book.title, // Alias
+            kodeBuku: book.kodebuku || '',
+            author: book.author,
+            penulis: book.author, // Alias
+            publisher: book.publisher,
+            publicationYear: book.publicationyear,
+            year: book.publicationyear, // Alias
+            totalStock: book.totalstock,
+            availableStock: book.availablestock,
+            category: book.category,
+            image_url: book.image_url || null,
+            imageUrl: book.image_url || null, // Alias
+            location: book.location,
+            description: book.description,
+            programStudi: book.programstudi,
+            bahasa: book.bahasa,
+            jenisKoleksi: book.jeniskoleksi,
+            lampiran: book.lampiran,
+            attachment_url: book.attachment_url,
+            pemusatanMateri: book.pemusatanmateri,
+            pages: book.pages,
+            borrowCount: book.borrowcount
         }));
         res.json(booksWithFullPath);
     } catch (error) {
