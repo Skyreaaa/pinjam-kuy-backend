@@ -1415,20 +1415,20 @@ exports.getActiveLoansList = async (req, res) => {
         const result = await pool.query(`
             SELECT 
                 l.id, 
-                l.user_id, 
-                l.book_id, 
-                l.kodepinjam AS "kode_pinjam", 
-                l.loandate AS "loan_date", 
-                l.expectedreturndate AS "expected_return_date", 
+                l.user_id AS "userId", 
+                l.book_id AS "bookId", 
+                l.kodepinjam AS "kodePinjam", 
+                l.loandate AS "loanDate", 
+                l.expectedreturndate AS "expectedReturnDate", 
                 l.status, 
                 l.purpose, 
-                l.createdat AS "created_at",
+                l.createdat AS "createdAt",
                 u.npm, 
-                u.username, 
+                u.username AS "borrowerName", 
                 u.fakultas,
-                b.title AS "book_title", 
-                b.author AS "book_author", 
-                b.kodebuku AS "book_code"
+                b.title AS "bookTitle", 
+                b.author AS "bookAuthor", 
+                b.kodebuku AS "bookCode"
             FROM loans l
             JOIN users u ON l.user_id = u.id
             JOIN books b ON l.book_id = b.id
@@ -1452,21 +1452,21 @@ exports.getReturnsForReview = async (req, res) => {
         const result = await pool.query(`
             SELECT 
                 l.id, 
-                l.user_id, 
-                l.book_id, 
-                l.kodepinjam AS "kode_pinjam", 
-                l.loandate AS "loan_date", 
-                l.expectedreturndate AS "expected_return_date",
+                l.user_id AS "userId", 
+                l.book_id AS "bookId", 
+                l.kodepinjam AS "kodePinjam", 
+                l.loandate AS "loanDate", 
+                l.expectedreturndate AS "expectedReturnDate",
                 l.status, 
-                l.returnproofurl AS "return_proof_url", 
-                l.actualreturndate AS "actual_return_date", 
-                l.createdat AS "created_at",
+                l.returnproofurl AS "returnProofUrl", 
+                l.actualreturndate AS "actualReturnDate", 
+                l.createdat AS "createdAt",
                 u.npm, 
-                u.username, 
+                u.username AS "borrowerName", 
                 u.fakultas,
-                b.title AS "book_title", 
-                b.author AS "book_author", 
-                b.kodebuku AS "book_code"
+                b.title AS "bookTitle", 
+                b.author AS "bookAuthor", 
+                b.kodebuku AS "bookCode"
             FROM loans l
             JOIN users u ON l.user_id = u.id
             JOIN books b ON l.book_id = b.id
@@ -1490,22 +1490,22 @@ exports.getHistory = async (req, res) => {
         const result = await pool.query(`
             SELECT 
                 l.id, 
-                l.user_id, 
-                l.book_id, 
-                l.kodepinjam AS "kode_pinjam", 
-                l.loandate AS "loan_date", 
-                l.expectedreturndate AS "expected_return_date",
-                l.actualreturndate AS "actual_return_date",
+                l.user_id AS "userId", 
+                l.book_id AS "bookId", 
+                l.kodepinjam AS "kodePinjam", 
+                l.loandate AS "loanDate", 
+                l.expectedreturndate AS "expectedReturnDate",
+                l.actualreturndate AS "actualReturnDate",
                 l.status, 
-                l.fineamount AS "fine_amount",
-                l.returndecision AS "return_decision",
-                l.createdat AS "created_at",
+                l.fineamount AS "fineAmount",
+                l.returndecision AS "returnDecision",
+                l.createdat AS "createdAt",
                 u.npm, 
-                u.username, 
+                u.username AS "borrowerName", 
                 u.fakultas,
-                b.title AS "book_title", 
-                b.author AS "book_author", 
-                b.kodebuku AS "book_code"
+                b.title AS "bookTitle", 
+                b.author AS "bookAuthor", 
+                b.kodebuku AS "bookCode"
             FROM loans l
             JOIN users u ON l.user_id = u.id
             JOIN books b ON l.book_id = b.id
