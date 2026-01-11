@@ -1510,7 +1510,7 @@ exports.getHistory = async (req, res) => {
             JOIN users u ON l.user_id = u.id
             JOIN books b ON l.book_id = b.id
             WHERE l.status IN ('Dikembalikan', 'Ditolak', 'Selesai', 'Dibatalkan User')
-            ORDER BY l.actualreturndate DESC, l.createdat DESC
+            ORDER BY COALESCE(l.actualreturndate, l.createdat) DESC
         `);
         
         console.log(`✅ [getHistory] Found ${result.rows.length} history records`);
@@ -1518,5 +1518,7 @@ exports.getHistory = async (req, res) => {
     } catch (error) {
         console.error('❌ [getHistory] Error:', error);
         res.status(500).json({ success: false, message: 'Gagal memuat riwayat: ' + error.message });
+    }
+};
     }
 };
