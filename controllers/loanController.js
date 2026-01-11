@@ -668,11 +668,10 @@ exports.scanLoan = async (req, res) => {
                 l.book_id as "bookId", 
                 l.user_id as "userId",
                 b.title as "bookTitle",
-                u.fullname as "borrowerName",
-                u.username
+                u.username as "borrowerName"
             FROM loans l
             LEFT JOIN books b ON l.book_id = b.id
-            LEFT JOIN "user" u ON l.user_id = u.id_user
+            LEFT JOIN users u ON l.user_id = u.id
             WHERE l.kodepinjam = $1 LIMIT 1
         `, [kodePinjam]);
         console.log('[SCAN_LOAN] Query result:', _pgResult.rows.length, 'rows found');
@@ -694,7 +693,7 @@ exports.scanLoan = async (req, res) => {
             return res.status(400).json({ 
                 message: `Status sekarang '${loan.status}'. Hanya status 'Disetujui' yang bisa discan untuk pengambilan.`,
                 bookTitle: loan.bookTitle || 'Tidak Diketahui',
-                borrowerName: loan.borrowerName || loan.username || 'Tidak Diketahui',
+                borrowerName: loan.borrowerName || 'Tidak Diketahui',
                 currentStatus: loan.status
             });
         }
@@ -716,7 +715,7 @@ exports.scanLoan = async (req, res) => {
                 return res.status(400).json({ 
                     message: 'QR Expired! Kode QR sudah kedaluwarsa (lebih dari 24 jam). Silakan buat pinjaman baru.',
                     bookTitle: loan.bookTitle || 'Tidak Diketahui',
-                    borrowerName: loan.borrowerName || loan.username || 'Tidak Diketahui'
+                    borrowerName: loan.borrowerName || 'Tidak Diketahui'
                 });
             }
         }
