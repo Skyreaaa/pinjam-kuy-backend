@@ -1343,10 +1343,27 @@ exports.ackRejectionNotifications = async (req, res) => {
 exports.submitFinePayment = async (req, res) => {
     const pool = getDBPool(req);
     const userId = req.user.id;
-    const { method, loanIds, totalAmount, accountName, bankName } = req.body;
+    let { method, loanIds, totalAmount, accountName, bankName } = req.body;
+    
+    // Parse loanIds if it's a string (from FormData)
+    if (typeof loanIds === 'string') {
+        try {
+            loanIds = JSON.parse(loanIds);
+        } catch (e) {
+            return res.status(400).json({ message: 'Format loanIds tidak valid.' });
+        }
+    }
+    
+    // Parse totalAmount if it's a string
+    if (typeof totalAmount === 'string') {
+        totalAmount = parseFloat(totalAmount);
+    }
     
     if (!method || !loanIds || !Array.isArray(loanIds) || loanIds.length === 0 || !totalAmount) {
-        return res.status(400).json({ message: 'Data pembayaran tidak lengkap.' });
+        return res.status(400).json({ 
+            message: 'Data pembayaran tidak lengkap.',
+            debug: { method, loanIds: typeof loanIds, loanIdsValue: loanIds, totalAmount: typeof totalAmount }
+        });
     }
     
     // PostgreSQL uses pool directly
