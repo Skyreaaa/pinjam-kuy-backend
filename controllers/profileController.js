@@ -30,19 +30,17 @@ exports.updateBiodata = async (req, res) => {
 
     try {
         console.log('[PROFILE][updateBiodata] userId=%s npm=%s body=%o', id, npm, { username, fakultas, prodi, angkatan });
-        const _pgResult = await pool.query(
+        const updateResult = await pool.query(
             'UPDATE users SET username = $1, fakultas = $2, prodi = $3, angkatan = $4 WHERE npm = $5',
             [username, fakultas, prodi, angkatan, npm]
         );
-        const result = _pgResult.rows;
 
-        if (result.affectedRows === 0) {
+        if (updateResult.rowCount === 0) {
             return res.status(404).json({ success: false, message: 'Pengguna tidak ditemukan.' });
         }
 
-        const _pgResult = await pool.query('SELECT id, npm, username, role, fakultas, prodi, angkatan, profile_photo_url, denda, active_loans_count FROM users WHERE npm = $1 LIMIT 1', [npm]);
-        const rows = _pgResult.rows;
-        const updatedUser = rows[0] || null;
+        const userResult = await pool.query('SELECT id, npm, username, role, fakultas, prodi, angkatan, profile_photo_url, denda, active_loans_count FROM users WHERE npm = $1 LIMIT 1', [npm]);
+        const updatedUser = userResult.rows[0] || null;
         res.status(200).json({
             success: true,
             message: 'Biodata berhasil diperbarui.',

@@ -322,11 +322,8 @@ exports.updateBook = async (req, res) => {
         res.json({ success: true, message: 'Buku berhasil diperbarui.' });
 
     } catch (error) {
-        if (connection) // No rollback
         console.error('❌ [UPDATE BOOK] Error:', error);
         res.status(500).json({ message: 'Gagal memperbarui buku.', error: error.message });
-    } finally {
-        if (connection) // No release
     }
 };
 
