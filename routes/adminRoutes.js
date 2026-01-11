@@ -321,7 +321,8 @@ router.post('/returns/reject', loanController.rejectReturnProof);
 
 // === FINE PAYMENTS ===
 router.get('/fine-payments', adminController.getPendingFinePayments);
-const { uploadFineProof } = require('../middleware/upload');
-router.post('/fine-payments/:id/verify', uploadFineProof.single('proof'), adminController.verifyFinePayment);
+// TODO: Implement verifyFinePayment in adminController
+// const { uploadFineProof } = require('../middleware/upload');
+// router.post('/fine-payments/:id/verify', uploadFineProof.single('proof'), adminController.verifyFinePayment);
 
 module.exports = router;
