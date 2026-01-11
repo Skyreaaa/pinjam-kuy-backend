@@ -96,10 +96,10 @@ exports.requestLoan = async (req, res) => {
         
         // Cek 2: Ketersediaan Stok & Info Buku (PostgreSQL schema uses different column names)
         const bookResult = await pool.query(
-            'SELECT judul, stok, description FROM books WHERE id_buku = $1', 
+            'SELECT title, availablestock, description FROM books WHERE id = $1', 
             [bookId]
         );
-        if (bookResult.rows.length === 0 || bookResult.rows[0].stok <= 0) {
+        if (bookResult.rows.length === 0 || bookResult.rows[0].availablestock <= 0) {
             return res.status(400).json({ message: 'Stok buku tidak tersedia.' });
         }
         
@@ -109,7 +109,7 @@ exports.requestLoan = async (req, res) => {
         // Cek 3: Duplikasi Permintaan (hanya untuk buku fisik)
         if (!isDigitalBook) {
             const duplicateResult = await pool.query(
-                'SELECT id_pinjam FROM loan WHERE id_user = $1 AND id_buku = $2 AND status IN ($3, $4)', 
+                'SELECT id FROM loans WHERE user_id = $1 AND book_id = $2 AND status IN ($3, $4)', 
                 [userId, bookId, 'Disetujui', 'Sedang Dipinjam']
             );
             if (duplicateResult.rows.length > 0) {
@@ -142,9 +142,9 @@ exports.requestLoan = async (req, res) => {
 
         // Insert loan record (PostgreSQL) - Status langsung 'Disetujui' (otomatis disetujui)
         const insertSQL = `
-            INSERT INTO loan (id_user, id_buku, tanggal_pinjam, tanggal_kembali, status, kodepinjam, purpose) 
+            INSERT INTO loans (user_id, book_id, loandate, expectedreturndate, status, kodepinjam, purpose) 
             VALUES ($1, $2, $3, $4, $5, $6, $7) 
-            RETURNING id_pinjam as id
+            RETURNING id
         `;
         const result = await pool.query(insertSQL, [
             userId, 
@@ -156,15 +156,15 @@ exports.requestLoan = async (req, res) => {
             purpose || null
         ]);
 
-        // Kurangi Stok Tersedia (PostgreSQL schema uses 'stok' not 'availablestock')
-        await pool.query('UPDATE books SET stok = stok - 1 WHERE id_buku = $1', [bookId]);
+        // Kurangi Stok Tersedia (PostgreSQL schema uses 'availablestock')
+        await pool.query('UPDATE books SET availablestock = availablestock - 1 WHERE id = $1', [bookId]);
 
         const loanPayload = {
             id: result.rows[0].id,
-            bookTitle: book.judul || book.title,
+            bookTitle: book.title,
             loanDate: loanDateStr, // QR sudah aktif
             expectedReturnDate,
-            status: 'pending',
+            status: 'Disetujui',
             kodePinjam,
         };
         if (purpose) loanPayload.purpose = purpose;
@@ -175,7 +175,7 @@ exports.requestLoan = async (req, res) => {
             if (io) {
                 // Notif ke user bahwa QR code sudah siap
                 io.to(`user_${userId}`).emit('notification', {
-                    message: `QR Code untuk buku "${book.judul || book.title}" sudah siap! Tunjukkan ke petugas untuk mengambil buku.`,
+                    message: `QR Code untuk buku "${book.title}" sudah siap! Tunjukkan ke petugas untuk mengambil buku.`,
                     type: 'success',
                     loanId: result.rows[0].id,
                     kodePinjam: kodePinjam
@@ -183,7 +183,7 @@ exports.requestLoan = async (req, res) => {
                 
                 // Notif ke admin bahwa ada pinjaman baru yang siap di-scan
                 io.to('admins').emit('notification', {
-                    message: `Pinjaman baru: Buku "${book.judul || book.title}" oleh user ID ${userId}. QR: ${kodePinjam}`,
+                    message: `Pinjaman baru: Buku "${book.title}" oleh user ID ${userId}. QR: ${kodePinjam}`,
                     type: 'info',
                 });
             }
