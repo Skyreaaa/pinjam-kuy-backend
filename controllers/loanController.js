@@ -336,10 +336,11 @@ exports.cancelLoan = async (req, res) => {
         // No transactions for now
 
         // Cek kepemilikan dan status
-        const [loans] = await pool.query(
-            'SELECT status, book_id FROM loans WHERE id =: AND user_id = $2',
+        const loansResult = await pool.query(
+            'SELECT status, book_id FROM loans WHERE id = $1 AND user_id = $2',
             [loanId, userId]
         );
+        const loans = loansResult.rows;
 
         if (loans.length === 0) {
             // No rollback
@@ -356,7 +357,7 @@ exports.cancelLoan = async (req, res) => {
 
         // Update status menjadi Dibatalkan User (cancelled by user)
         await pool.query(
-            'UPDATE loans SET status =: WHERE id = $2',
+            'UPDATE loans SET status = $1 WHERE id = $2',
             ['Dibatalkan User', loanId]
         );
 
