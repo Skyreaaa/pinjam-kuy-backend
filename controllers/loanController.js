@@ -177,22 +177,6 @@ exports.requestLoan = async (req, res) => {
         res.status(500).json({ message: 'Gagal memproses permintaan pinjaman: ' + error.message });
     }
 };
-            });
-        } catch (err) {
-            console.warn('[PUSH][NOTIF] Gagal kirim push notif requestLoan ke admin:', err.message);
-        }
-        
-        res.json({ 
-            success: true, 
-            message: `Permintaan pinjaman buku "${book[0].title}" berhasil. Kode pinjam sudah aktif, Anda dapat langsung mengambil buku.`,
-            loan: loanPayload
-        });
-
-    } catch (error) {
-        console.error('❌ Error requesting loan:', error);
-        res.status(500).json({ message: 'Gagal memproses permintaan pinjaman.' });
-    }
-};
 
 // 2. Mendapatkan Riwayat Pinjaman User (GET /api/loans/user-history)
 exports.getUserLoanHistory = async (req, res) => {
