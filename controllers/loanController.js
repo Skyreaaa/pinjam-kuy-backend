@@ -254,9 +254,9 @@ exports.getUserLoans = async (req, res) => {
     const pool = getDBPool(req);
     const userId = req.user.id;
     try {
-        const colsResult = await pool.query('SHOW COLUMNS FROM loans');
+        const colsResult = await pool.query("SELECT column_name FROM information_schema.columns WHERE table_name = 'loans'");
         const cols = colsResult.rows;
-        const names = cols.map(c => c.Field);
+        const names = cols.map(c => c.column_name);
         const selectParts = [
             'l.id','l.loanDate','l.expectedReturnDate AS returnDate','l.actualReturnDate','l.status','l.fineAmount','l.returnDecision'
         ];
@@ -969,7 +969,7 @@ exports.getApprovalNotifications = async (req, res) => {
     try {
         const _pgResult = await pool.query(
             `SELECT id, book_id, approvedAt, status, kodePinjam FROM loans 
-             WHERE user_id =: AND approvedAt IS NOT NULL AND userNotified = 0 AND status IN ('Sedang Dipinjam','Diambil','Disetujui')
+             WHERE user_id = $1 AND approvedAt IS NOT NULL AND userNotified = 0 AND status IN ('Sedang Dipinjam','Diambil','Disetujui')
              ORDER BY approvedAt DESC LIMIT 20`,
             [userId]
         );
@@ -1008,7 +1008,7 @@ exports.getReturnNotifications = async (req, res) => {
             `SELECT l.id, l.status, l.returnDecision, l.actualReturnDate, l.fineAmount, b.title AS bookTitle
              FROM loans l
              JOIN books b ON l.book_id = b.id
-             WHERE l.user_id =: AND l.returnNotified = 0 AND l.returnDecision IS NOT NULL
+             WHERE l.user_id = $1 AND l.returnNotified = 0 AND l.returnDecision IS NOT NULL
              ORDER BY l.actualReturnDate DESC LIMIT 20`,
             [userId]
         );
@@ -1092,7 +1092,7 @@ exports.getRejectionNotifications = async (req, res) => {
             `SELECT l.id, l.status, l.rejectionDate, b.title AS bookTitle
              FROM loans l
              JOIN books b ON l.book_id = b.id
-             WHERE l.user_id =: AND l.status = 'Ditolak' AND l.rejectionDate IS NOT NULL AND (l.rejectionNotified = 0 OR l.rejectionNotified IS NULL)
+             WHERE l.user_id = $1 AND l.status = 'Ditolak' AND l.rejectionDate IS NOT NULL AND (l.rejectionNotified = 0 OR l.rejectionNotified IS NULL)
              ORDER BY l.rejectionDate DESC LIMIT 20`,
             [userId]
         );
