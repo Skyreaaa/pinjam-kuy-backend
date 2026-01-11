@@ -267,6 +267,7 @@ app.use('/api/push', pushRoutes);
 app.use('/loans', loanRoutes);
 app.use('/books', bookRoutes);
 app.use('/profile', profileRoutes);
+app.use('/user', profileRoutes); // Alias for /user/notifications
 
 console.log('✅ Routes registered');
 

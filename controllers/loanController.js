@@ -1049,7 +1049,8 @@ exports.getNotificationHistory = async (req, res) => {
         // Check if returnProofMetadata column exists
         let hasMetadataCol = false;
         try {
-            const [cols] = await pool.query("SHOW COLUMNS FROM loans LIKE 'returnProofMetadata'");
+            const colResult = await pool.query("SELECT column_name FROM information_schema.columns WHERE table_name='loans' AND column_name='returnproofmetadata'");
+            const cols = colResult.rows;
             hasMetadataCol = cols.length > 0;
         } catch (e) {
             console.warn('Failed to check returnProofMetadata column:', e.message);
@@ -1069,7 +1070,7 @@ exports.getNotificationHistory = async (req, res) => {
                                 l.returnProofUrl${metadataField}
              FROM loans l
              JOIN books b ON l.book_id = b.id
-             WHERE l.user_id =: AND (
+             WHERE l.user_id = $1 AND (
                     (l.approvedAt IS NOT NULL) OR
                                         (l.returnDecision IS NOT NULL) OR
                                         (l.rejectionDate IS NOT NULL)
@@ -1397,26 +1398,23 @@ exports.submitFinePayment = async (req, res) => {
 
 // Get payment history for the logged-in user
 exports.getPaymentHistory = async (req, res) => {
-    // PostgreSQL uses pool directly
+    const pool = getDBPool(req);
     try {
         const userId = req.user.id; // From checkAuth middleware
-
-        connection = await db.promise().getConnection();
         
-        const [payments] = await pool.query(
+        const result = await pool.query(
             `SELECT id, method, amount_total, status, proof_url, account_name, bank_name, 
                     admin_notes, verified_by, verified_at, created_at, updated_at
              FROM fine_payments 
-             WHERE user_id =: ORDER BY created_at DESC`,
+             WHERE user_id = $1 ORDER BY created_at DESC`,
             [userId]
         );
+        const payments = result.rows;
 
         res.json(payments);
     } catch (error) {
         console.error('❌ [getPaymentHistory] Error:', error);
         res.status(500).json({ message: 'Gagal memuat riwayat pembayaran', error: error.message });
-    } finally {
-        // PostgreSQL - No connection release needed
     }
 };
 
