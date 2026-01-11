@@ -65,111 +65,87 @@ async function backfillMissingKodePinjam(connection) {
 exports.requestLoan = async (req, res) => {
     const pool = getDBPool(req);
     const userId = req.user.id; 
-    const { bookId, purpose, returnDate } = req.body; // returnDate opsional dari frontend
+    const { bookId, purpose, returnDate } = req.body;
 
     if (!bookId) {
         return res.status(400).json({ message: 'ID Buku diperlukan.' });
     }
 
-    // PostgreSQL uses pool directly
     try {
-        // No getConnection needed
-        // No transactions for now
-
-        // Cek 1: Batas Maksimal Pinjaman (misal 3 buku) -- perluas status aktif
-        const [activeLoans] = await pool.query('SELECT COUNT(*) as count FROM loans WHERE user_id =: AND status IN ($2, $3, $4, $5)', [userId, 'Menunggu Persetujuan', 'Disetujui', 'Diambil', 'Sedang Dipinjam']);
-        if (activeLoans[0].count >= 3) {
-            // No rollback
+        // Cek 1: Batas Maksimal Pinjaman (3 buku aktif)
+        const activeLoansResult = await pool.query(
+            'SELECT COUNT(*) as count FROM loans WHERE user_id = $1 AND status IN ($2, $3, $4, $5)', 
+            [userId, 'Menunggu Persetujuan', 'Disetujui', 'Diambil', 'Sedang Dipinjam']
+        );
+        if (parseInt(activeLoansResult.rows[0].count) >= 3) {
             return res.status(400).json({ message: 'Anda telah mencapai batas maksimal 3 pinjaman aktif/tertunda.' });
         }
         
-        // Cek 2: Ketersediaan Stok & Info Buku (lampiran/attachment)
-        const [book] = await pool.query('SELECT title, availableStock, lampiran, attachment_url FROM books WHERE id = $1', [bookId]);
-        if (book.length === 0 || book[0].availableStock <= 0) {
-            // No rollback
+        // Cek 2: Ketersediaan Stok & Info Buku
+        const bookResult = await pool.query(
+            'SELECT title, availablestock, lampiran, attachment_url FROM books WHERE id = $1', 
+            [bookId]
+        );
+        if (bookResult.rows.length === 0 || bookResult.rows[0].availablestock <= 0) {
             return res.status(400).json({ message: 'Stok buku tidak tersedia.' });
         }
         
-        // Cek apakah buku digital (punya attachment)
-        const isDigitalBook = book[0].lampiran && book[0].lampiran !== 'Tidak Ada' && book[0].attachment_url;
+        const book = bookResult.rows[0];
+        const isDigitalBook = book.lampiran && book.lampiran !== 'Tidak Ada' && book.attachment_url;
         
-        // Cek 3: Duplikasi Permintaan
-        // - Untuk buku FISIK: user tidak boleh pinjam buku SAMA yang masih aktif
-        // - Untuk buku DIGITAL: user bisa pinjam buku digital meski sudah pinjam buku digital/fisik lain
+        // Cek 3: Duplikasi Permintaan (hanya untuk buku fisik)
         if (!isDigitalBook) {
-            // Untuk buku fisik, cek apakah user sudah pinjam buku SAMA
-            const duplicateResult = await pool.query('SELECT id FROM loans WHERE user_id =: AND book_id =: AND status IN ($3, $4, $5, $6)', [userId, bookId, 'Menunggu Persetujuan','Disetujui','Diambil','Sedang Dipinjam']);
-            if (duplicateResult.rows && duplicateResult.rows.length > 0) {
-                // No rollback
+            const duplicateResult = await pool.query(
+                'SELECT id FROM loans WHERE user_id = $1 AND book_id = $2 AND status IN ($3, $4, $5, $6)', 
+                [userId, bookId, 'Menunggu Persetujuan', 'Disetujui', 'Diambil', 'Sedang Dipinjam']
+            );
+            if (duplicateResult.rows.length > 0) {
                 return res.status(400).json({ message: 'Anda sudah meminjam / mengajukan buku fisik ini. Kembalikan buku terlebih dahulu sebelum meminjam lagi.' });
             }
         }
-        // Untuk buku digital, tidak ada blocking sama sekali
 
-        // Tentukan tanggal pinjam & estimasi kembali (gunakan returnDate dari client jika valid <= MAX_LOAN_DAYS)
+        // Tentukan tanggal pinjam & estimasi kembali
         const now = new Date();
         const loanDate = format(now, 'yyyy-MM-dd HH:mm:ss');
         let expectedReturnDate = null;
         
-        // Untuk buku digital, tidak perlu returnDate
         if (!isDigitalBook && returnDate) {
-            // Ikuti penuh tanggal yang dipilih user (tanpa batas maksimum hari)
             const clientReturn = new Date(returnDate);
-            // Jika tanggal valid dan di masa depan/hari ini, pakai langsung
             if (!isNaN(clientReturn.getTime())) {
                 expectedReturnDate = format(clientReturn, 'yyyy-MM-dd HH:mm:ss');
             }
         }
         if (!expectedReturnDate) {
-            // Jika user tidak mengisi atau tanggal tidak valid, fallback 7 hari dari sekarang
             expectedReturnDate = format(addDays(now, 7), 'yyyy-MM-dd HH:mm:ss');
         }
 
-        // Pastikan kolom tambahan ada (runtime safety jika migrasi belum jalan)
-        const [cols] = await pool.query("SHOW COLUMNS FROM loans");
-        const colNames = cols.map(c => c.Field);
-        let hasKode = colNames.includes('kodePinjam');
-        let hasPurpose = colNames.includes('purpose');
-        if (!hasKode || !hasPurpose) {
-            try {
-                if (!hasKode) await pool.query("ALTER TABLE loans ADD COLUMN kodePinjam varchar(40) NULL AFTER status");
-                if (!hasPurpose) await pool.query("ALTER TABLE loans ADD COLUMN purpose text NULL");
-                if (!hasKode) { try { await pool.query('ALTER TABLE loans ADD UNIQUE KEY uniq_kodePinjam (kodePinjam)'); } catch {}
-                }
-                // Refresh daftar kolom setelah ALTER
-                const [cols2] = await pool.query('SHOW COLUMNS FROM loans');
-                const fresh = cols2.map(c=>c.Field);
-                hasKode = fresh.includes('kodePinjam');
-                hasPurpose = fresh.includes('purpose');
-            } catch (mErr) {
-                console.warn('[LOAN][MIGRATION RUNTIME] Gagal menambah kolom:', mErr.message);
-            }
-        }
+        // Generate kodePinjam
+        const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const datePart = format(now, 'yyyyMMdd');
+        const kodePinjam = `KP-${datePart}-${randomPart}`;
 
-        // Buat kodePinjam langsung saat request
-        const genKode = () => {
-            const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase();
-            const datePart = format(now, 'yyyyMMdd');
-            return `KP-${datePart}-${randomPart}`;
-        };
-        let kodePinjam = genKode();
-
-        // Susun query insert dinamis sesuai kolom yang ada (gunakan flag hasKode/hasPurpose yang sudah direfresh)
-        const baseCols = ['user_id','book_id','loanDate','expectedReturnDate','status'];
-        const vals = [userId, bookId, loanDate, expectedReturnDate, 'Disetujui'];
-        if (hasKode) { baseCols.push('kodePinjam'); vals.push(kodePinjam); }
-        if (hasPurpose) { baseCols.push('purpose'); vals.push(purpose || null); }
-        const placeholders = baseCols.map(()=>'?').join(',');
-        const insertSQL = `INSERT INTO loans (${baseCols.join(',')}) VALUES (${placeholders})`;
-        const result = await pool.query(insertSQL, vals);
+        // Insert loan record (PostgreSQL)
+        const insertSQL = `
+            INSERT INTO loans (user_id, book_id, loandate, expectedreturndate, status, kodepinjam, purpose) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7) 
+            RETURNING id
+        `;
+        const result = await pool.query(insertSQL, [
+            userId, 
+            bookId, 
+            loanDate, 
+            expectedReturnDate, 
+            'Disetujui', 
+            kodePinjam, 
+            purpose || null
+        ]);
 
         // Kurangi Stok Tersedia
-        await pool.query('UPDATE books SET availableStock = availableStock - 1 WHERE id = $1', [bookId]);
+        await pool.query('UPDATE books SET availablestock = availablestock - 1 WHERE id = $1', [bookId]);
 
-        // No commit
         const loanPayload = {
-            id: result.rows[0]?.id,
-            bookTitle: book[0].title,
+            id: result.rows[0].id,
+            bookTitle: book.title,
             loanDate,
             expectedReturnDate,
             status: 'Disetujui',
@@ -177,12 +153,12 @@ exports.requestLoan = async (req, res) => {
         };
         if (purpose) loanPayload.purpose = purpose;
 
-        // --- TRIGGER SOCKET.IO NOTIFIKASI ADMIN: Permintaan pinjam baru ---
+        // --- TRIGGER SOCKET.IO NOTIFIKASI ADMIN ---
         try {
             const io = req.app.get('io');
             if (io) {
                 io.to('admins').emit('notification', {
-                    message: `Permintaan pinjam baru: Buku "${book[0].title}" oleh user ID ${userId}.`,
+                    message: `Permintaan pinjam baru: Buku "${book.title}" oleh user ID ${userId}.`,
                     type: 'info',
                 });
             }
@@ -190,14 +166,17 @@ exports.requestLoan = async (req, res) => {
             console.warn('[SOCKET.IO][NOTIF] Gagal kirim notif requestLoan ke admin:', err.message);
         }
         
-        // Kirim push notification ke semua admin
-        try {
-            await pushController.sendPushToAdmins({
-                title: 'Pemberitahuan',
-                message: `Permintaan pinjam baru: Buku "${book[0].title}" oleh user ID ${userId}`,
-                tag: 'new-loan-request',
-                data: { loanId: loanPayload.id, type: 'new_loan' },
-                requireInteraction: true
+        res.json({
+            success: true,
+            message: `Permintaan pinjaman buku "${book.title}" berhasil. Kode pinjam sudah aktif, Anda dapat langsung mengambil buku.`,
+            loan: loanPayload
+        });
+
+    } catch (error) {
+        console.error('❌ Error requesting loan:', error);
+        res.status(500).json({ message: 'Gagal memproses permintaan pinjaman: ' + error.message });
+    }
+};
             });
         } catch (err) {
             console.warn('[PUSH][NOTIF] Gagal kirim push notif requestLoan ke admin:', err.message);
@@ -223,12 +202,12 @@ exports.getUserLoanHistory = async (req, res) => {
     try {
         const query = `
             SELECT 
-                l.id, l.loanDate, l.expectedReturnDate, l.actualReturnDate, l.status, l.fineAmount, l.finePaid, l.returnProofUrl, l.kodePinjam,
-                b.title, b.author, b.kodeBuku, b.image_url, b.location, b.lampiran, b.attachment_url
+                l.id, l.loandate, l.expectedreturndate, l.actualreturndate, l.status, l.fineamount, l.finepaid, l.returnproofurl, l.kodepinjam,
+                b.title, b.author, b.kodebuku, b.image_url, b.location, b.lampiran, b.attachment_url
             FROM loans l
             JOIN books b ON l.book_id = b.id
             WHERE l.user_id = $1
-            ORDER BY l.loanDate DESC
+            ORDER BY l.loandate DESC
         `;
         const result = await pool.query(query, [userId]);
         const loans = result.rows;
