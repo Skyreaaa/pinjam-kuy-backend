@@ -212,18 +212,18 @@ router.get('/fines/pending', async (req,res)=>{
     try {
         // Pastikan tabel ada (jika belum dibuat oleh upload proof pertama)
         await pool.query(`CREATE TABLE IF NOT EXISTS fine_payment_notifications (
-            id INT AUTO_INCREMENT PRIMARY KEY,
+            id SERIAL PRIMARY KEY,
             user_id INT NOT NULL,
             loan_ids TEXT NOT NULL,
             amount_total INT NOT NULL DEFAULT 0,
             method VARCHAR(30) NULL,
             proof_url VARCHAR(255) NULL,
-            status ENUM('pending_verification','paid','rejected') NOT NULL DEFAULT 'pending_verification',
+            status VARCHAR(30) NOT NULL DEFAULT 'pending_verification',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`);
-        const [rows] = await pool.query(`SELECT n.*, u.username, u.npm FROM fine_payment_notifications n JOIN users u ON n.user_id=u.id WHERE n.status='pending_verification' ORDER BY n.created_at DESC`);
-        res.json({ success:true, items: rows });
+        )`);
+        const result = await pool.query(`SELECT n.*, u.username, u.npm FROM fine_payment_notifications n JOIN users u ON n.user_id=u.id WHERE n.status='pending_verification' ORDER BY n.created_at DESC`);
+        res.json({ success:true, items: result.rows || [] });
     } catch (e){
         console.error('[ADMIN][FINES][PENDING] Error:', e); res.status(500).json({ success:false, message:'Gagal mengambil daftar pembayaran denda menunggu verifikasi.' });
     }
@@ -234,32 +234,29 @@ router.post('/fines/verify', async (req,res)=>{
     const pool = req.app.get('dbPool');
     const { notificationId, action } = req.body || {};
     if(!notificationId || !['approve','reject'].includes(action)) return res.status(400).json({ success:false, message:'notificationId & action (approve|reject) diperlukan.' });
-    let conn;
     try {
-        conn = await pool.getConnection();
-        await conn.beginTransaction();
-        const [notiRows] = await conn.query('SELECT * FROM fine_payment_notifications WHERE id=? FOR UPDATE',[notificationId]);
-        if(!notiRows.length) { await conn.rollback(); return res.status(404).json({ success:false, message:'Notifikasi tidak ditemukan.' }); }
-        const noti = notiRows[0];
-        if(noti.status !== 'pending_verification'){ await conn.rollback(); return res.status(400).json({ success:false, message:'Status sudah diverifikasi.' }); }
+        // PostgreSQL uses pool directly, no transactions for now
+        const notiResult = await pool.query('SELECT * FROM fine_payment_notifications WHERE id=$1',[notificationId]);
+        if(!notiResult.rows.length) { return res.status(404).json({ success:false, message:'Notifikasi tidak ditemukan.' }); }
+        const noti = notiResult.rows[0];
+        if(noti.status !== 'pending_verification'){ return res.status(400).json({ success:false, message:'Status sudah diverifikasi.' }); }
         const loanIds = JSON.parse(noti.loan_ids || '[]');
         if(action==='approve'){
             if(loanIds.length){
-                const placeholders = loanIds.map(()=>'?').join(',');
-                await conn.query(`UPDATE loans SET finePaid=1, finePaymentStatus='paid', finePaymentAt=NOW() WHERE id IN (${placeholders}) AND user_id=?`, [...loanIds, noti.user_id]);
+                const placeholders = loanIds.map((_, i)=>`$${i+1}`).join(',');
+                await pool.query(`UPDATE loans SET finePaid=1, finePaymentStatus='paid', finePaymentAt=CURRENT_TIMESTAMP WHERE id IN (${placeholders}) AND user_id=$${loanIds.length+1}`, [...loanIds, noti.user_id]);
                 // Kurangi denda_unpaid user
-                await conn.query(`UPDATE users SET denda_unpaid = GREATEST(denda_unpaid - ?,0) WHERE id=?`, [noti.amount_total, noti.user_id]);
+                await pool.query(`UPDATE users SET denda_unpaid = GREATEST(denda_unpaid - $1, 0) WHERE id=$2`, [noti.amount_total, noti.user_id]);
             }
-            await conn.query('UPDATE fine_payment_notifications SET status="paid" WHERE id=?',[notificationId]);
+            await pool.query('UPDATE fine_payment_notifications SET status=$1 WHERE id=$2',['paid', notificationId]);
         } else if(action==='reject') {
             // Kembalikan status loans ke awaiting_proof agar user bisa upload ulang
             if(loanIds.length){
-                const placeholders = loanIds.map(()=>'?').join(',');
-                await conn.query(`UPDATE loans SET finePaymentStatus='awaiting_proof', finePaymentProof=NULL WHERE id IN (${placeholders}) AND user_id=?`, [...loanIds, noti.user_id]);
+                const placeholders = loanIds.map((_, i)=>`$${i+1}`).join(',');
+                await pool.query(`UPDATE loans SET finePaymentStatus='awaiting_proof', finePaymentProof=NULL WHERE id IN (${placeholders}) AND user_id=$${loanIds.length+1}`, [...loanIds, noti.user_id]);
             }
-            await conn.query('UPDATE fine_payment_notifications SET status="rejected" WHERE id=?',[notificationId]);
+            await pool.query('UPDATE fine_payment_notifications SET status=$1 WHERE id=$2',['rejected', notificationId]);
         }
-        await conn.commit();
 
         // === SOCKET.IO NOTIFIKASI USER ===
         try {
@@ -283,9 +280,8 @@ router.post('/fines/verify', async (req,res)=>{
 
         res.json({ success:true, updated: notificationId, action });
     } catch (e){
-        if(conn) await conn.rollback();
         console.error('[ADMIN][FINES][VERIFY] Error:', e); res.status(500).json({ success:false, message:'Gagal memverifikasi pembayaran denda.' });
-    } finally { if(conn) conn.release(); }
+    }
 });
 
 
