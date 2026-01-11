@@ -1413,21 +1413,34 @@ exports.getActiveLoansList = async (req, res) => {
     const pool = getDBPool(req);
     try {
         const result = await pool.query(`
-            SELECT l.id, l.user_id, l.book_id, l.kodePinjam, l.loanDate, l.expectedReturnDate, 
-                   l.status, l.purpose, l.createdAt,
-                   u.npm, u.username, u.fakultas,
-                   b.title, b.author, b.kodeBuku
+            SELECT 
+                l.id, 
+                l.user_id, 
+                l.book_id, 
+                l.kodepinjam AS "kode_pinjam", 
+                l.loandate AS "loan_date", 
+                l.expectedreturndate AS "expected_return_date", 
+                l.status, 
+                l.purpose, 
+                l.createdat AS "created_at",
+                u.npm, 
+                u.username, 
+                u.fakultas,
+                b.title AS "book_title", 
+                b.author AS "book_author", 
+                b.kodebuku AS "book_code"
             FROM loans l
             JOIN users u ON l.user_id = u.id
             JOIN books b ON l.book_id = b.id
             WHERE l.status IN ('Diambil', 'Sedang Dipinjam', 'Terlambat')
-            ORDER BY l.loanDate DESC
+            ORDER BY l.loandate DESC
         `);
         
-        res.json(result.rows || []);
+        console.log(`✅ [getActiveLoansList] Found ${result.rows.length} active loans`);
+        res.json({ success: true, items: result.rows });
     } catch (error) {
         console.error('❌ [getActiveLoansList] Error:', error);
-        res.status(500).json({ message: 'Gagal memuat pinjaman aktif', error: error.message });
+        res.status(500).json({ success: false, message: 'Gagal memuat pinjaman aktif: ' + error.message });
     }
 };
 
@@ -1437,26 +1450,73 @@ exports.getReturnsForReview = async (req, res) => {
     const pool = getDBPool(req);
     try {
         const result = await pool.query(`
-            SELECT l.id, l.user_id, l.book_id, l.kodePinjam, l.loanDate, l.expectedReturnDate,
-                   l.status, l.returnProofUrl, l.actualReturnDate, l.createdAt,
-                   u.npm, u.username, u.fakultas,
-                   b.title, b.author, b.kodeBuku
+            SELECT 
+                l.id, 
+                l.user_id, 
+                l.book_id, 
+                l.kodepinjam AS "kode_pinjam", 
+                l.loandate AS "loan_date", 
+                l.expectedreturndate AS "expected_return_date",
+                l.status, 
+                l.returnproofurl AS "return_proof_url", 
+                l.actualreturndate AS "actual_return_date", 
+                l.createdat AS "created_at",
+                u.npm, 
+                u.username, 
+                u.fakultas,
+                b.title AS "book_title", 
+                b.author AS "book_author", 
+                b.kodebuku AS "book_code"
             FROM loans l
             JOIN users u ON l.user_id = u.id
             JOIN books b ON l.book_id = b.id
             WHERE (l.status = 'Siap Dikembalikan') 
-               OR (l.status IN ('Sedang Dipinjam', 'Terlambat') AND l.returnProofUrl IS NOT NULL)
-            ORDER BY l.actualReturnDate DESC, l.loanDate DESC
+               OR (l.status IN ('Sedang Dipinjam', 'Terlambat') AND l.returnproofurl IS NOT NULL)
+            ORDER BY l.actualreturndate DESC, l.loandate DESC
         `);
         
         console.log('✅ [getReturnsForReview] Found:', result.rows?.length || 0, 'returns');
-        res.json(result.rows || []);
+        res.json({ success: true, items: result.rows });
     } catch (error) {
         console.error('❌ [getReturnsForReview] Error:', error);
-        res.status(500).json({ message: 'Gagal memuat pengembalian', error: error.message });
+        res.status(500).json({ success: false, message: 'Gagal memuat pengembalian: ' + error.message });
     }
 };
 
-
-
-
+// Get history (Dikembalikan, Ditolak, Selesai, Dibatalkan)
+exports.getHistory = async (req, res) => {
+    const pool = getDBPool(req);
+    try {
+        const result = await pool.query(`
+            SELECT 
+                l.id, 
+                l.user_id, 
+                l.book_id, 
+                l.kodepinjam AS "kode_pinjam", 
+                l.loandate AS "loan_date", 
+                l.expectedreturndate AS "expected_return_date",
+                l.actualreturndate AS "actual_return_date",
+                l.status, 
+                l.fineamount AS "fine_amount",
+                l.returndecision AS "return_decision",
+                l.createdat AS "created_at",
+                u.npm, 
+                u.username, 
+                u.fakultas,
+                b.title AS "book_title", 
+                b.author AS "book_author", 
+                b.kodebuku AS "book_code"
+            FROM loans l
+            JOIN users u ON l.user_id = u.id
+            JOIN books b ON l.book_id = b.id
+            WHERE l.status IN ('Dikembalikan', 'Ditolak', 'Selesai', 'Dibatalkan User')
+            ORDER BY l.actualreturndate DESC, l.createdat DESC
+        `);
+        
+        console.log(`✅ [getHistory] Found ${result.rows.length} history records`);
+        res.json({ success: true, items: result.rows });
+    } catch (error) {
+        console.error('❌ [getHistory] Error:', error);
+        res.status(500).json({ success: false, message: 'Gagal memuat riwayat: ' + error.message });
+    }
+};
