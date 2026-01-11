@@ -1473,7 +1473,7 @@ exports.getReturnsForReview = async (req, res) => {
         `);
         
         console.log('✅ [getReturnsForReview] Found:', result.rows?.length || 0, 'returns');
-        res.json({ success: true, items: result.rows });
+        res.json({ success: true, returns: result.rows });
     } catch (error) {
         console.error('❌ [getReturnsForReview] Error:', error);
         res.status(500).json({ success: false, message: 'Gagal memuat pengembalian: ' + error.message });
