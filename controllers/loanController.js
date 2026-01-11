@@ -1509,7 +1509,7 @@ exports.getHistory = async (req, res) => {
             FROM loans l
             JOIN users u ON l.user_id = u.id
             JOIN books b ON l.book_id = b.id
-            WHERE l.status IN ('Dikembalikan', 'Ditolak', 'Dibatalkan User')
+            WHERE l.status IN ('Dikembalikan', 'Ditolak')
             ORDER BY COALESCE(l.actualreturndate, l.createdat) DESC
         `);
         
