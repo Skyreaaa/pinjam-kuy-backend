@@ -122,20 +122,26 @@ exports.requestLoan = async (req, res) => {
         const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase();
         const datePart = format(now, 'yyyyMMdd');
         const kodePinjam = `KP-${datePart}-${randomPart}`;
+        
+        // Set loanDate (waktu QR generated) dan approvedAt langsung
+        const loanDateStr = format(now, 'yyyy-MM-dd HH:mm:ss');
+        const approvedAtStr = format(now, 'yyyy-MM-dd HH:mm:ss');
 
-        // Insert loan record (PostgreSQL) - Status awal: Menunggu Persetujuan
+        // Insert loan record (PostgreSQL) - Status langsung 'Disetujui' dengan loanDate & approvedAt
         const insertSQL = `
-            INSERT INTO loans (user_id, book_id, expectedreturndate, status, kodepinjam, purpose) 
-            VALUES ($1, $2, $3, $4, $5, $6) 
+            INSERT INTO loans (user_id, book_id, loandate, expectedreturndate, status, kodepinjam, purpose, approvedat) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
             RETURNING id
         `;
         const result = await pool.query(insertSQL, [
             userId, 
-            bookId, 
+            bookId,
+            loanDateStr,
             expectedReturnDate, 
-            'Menunggu Persetujuan', 
+            'Disetujui', // Langsung disetujui otomatis
             kodePinjam, 
-            purpose || null
+            purpose || null,
+            approvedAtStr
         ]);
 
         // Kurangi Stok Tersedia
@@ -144,29 +150,38 @@ exports.requestLoan = async (req, res) => {
         const loanPayload = {
             id: result.rows[0].id,
             bookTitle: book.title,
-            loanDate: null, // Belum diambil, akan di-set saat scan QR
+            loanDate: loanDateStr, // QR sudah aktif
             expectedReturnDate,
-            status: 'Menunggu Persetujuan',
+            status: 'Disetujui',
             kodePinjam,
         };
         if (purpose) loanPayload.purpose = purpose;
 
-        // --- TRIGGER SOCKET.IO NOTIFIKASI ADMIN ---
+        // --- TRIGGER SOCKET.IO NOTIFIKASI USER: QR Code Siap ---
         try {
             const io = req.app.get('io');
             if (io) {
+                // Notif ke user bahwa QR code sudah siap
+                io.to(`user_${userId}`).emit('notification', {
+                    message: `QR Code untuk buku "${book.title}" sudah siap! Tunjukkan ke petugas untuk mengambil buku.`,
+                    type: 'success',
+                    loanId: result.rows[0].id,
+                    kodePinjam: kodePinjam
+                });
+                
+                // Notif ke admin bahwa ada pinjaman baru yang siap di-scan
                 io.to('admins').emit('notification', {
-                    message: `Permintaan pinjam baru: Buku "${book.title}" oleh user ID ${userId}.`,
+                    message: `Pinjaman baru: Buku "${book.title}" oleh user ID ${userId}. QR: ${kodePinjam}`,
                     type: 'info',
                 });
             }
         } catch (err) {
-            console.warn('[SOCKET.IO][NOTIF] Gagal kirim notif requestLoan ke admin:', err.message);
+            console.warn('[SOCKET.IO][NOTIF] Gagal kirim notif requestLoan:', err.message);
         }
         
         res.json({
             success: true,
-            message: `Permintaan pinjaman buku "${book.title}" berhasil diajukan. Menunggu persetujuan admin.`,
+            message: `QR Code untuk buku "${book.title}" sudah siap! Tunjukkan QR code ke petugas untuk mengambil buku. Berlaku 24 jam.`,
             loan: loanPayload
         });
 
