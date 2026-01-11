@@ -250,6 +250,8 @@ exports.getUserLoans = async (req, res) => {
         if (names.includes('finepaymentstatus')) selectParts.push('l.finepaymentstatus AS "finePaymentStatus"');
         if (names.includes('finepaymentmethod')) selectParts.push('l.finepaymentmethod AS "finePaymentMethod"');
         if (names.includes('finepaymentproof')) selectParts.push('l.finepaymentproof AS "finePaymentProof"');
+        if (names.includes('finereason')) selectParts.push('l.finereason AS "fineReason"');
+        if (names.includes('returnproofurl')) selectParts.push('l.returnproofurl AS "returnProofUrl"');
         
         // Book columns with proper aliases
         selectParts.push(
@@ -286,6 +288,18 @@ exports.getUserLoans = async (req, res) => {
                     loan.status = 'Ditolak';
                 }
             }
+        }
+        
+        // Debug: Log loans with fines for troubleshooting
+        const loansWithFines = rows.filter(loan => loan.fineAmount > 0);
+        if (loansWithFines.length > 0) {
+            console.log('💰 [getUserLoans] Found loans with fines:', loansWithFines.map(l => ({
+                id: l.id,
+                status: l.status,
+                fineAmount: l.fineAmount,
+                finePaid: l.finePaid,
+                fineReason: l.fineReason
+            })));
         }
         
         res.json(rows);
