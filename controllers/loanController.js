@@ -779,8 +779,9 @@ exports.processReturn = async (req, res) => {
         // Hitung denda keterlambatan (Otomatis)
         const autoPenalty = calculatePenalty(expectedReturnDate, actualReturnDate);
         
-        // Total Denda = Denda Otomatis + Denda Manual
-        const totalFine = autoPenalty + Number(manualFineAmount); 
+        // Total Denda = Denda Otomatis + Denda Manual (default 0 jika undefined/null/NaN)
+        const parsedManualFine = Number(manualFineAmount) || 0;
+        const totalFine = autoPenalty + parsedManualFine; 
 
         // 2. Update status pinjaman menjadi 'Dikembalikan', simpan denda & tanggal pengembalian
         await pool.query(
