@@ -1448,7 +1448,7 @@ exports.getReturnsForReview = async (req, res) => {
     try {
         const result = await pool.query(`
             SELECT l.id, l.user_id, l.book_id, l.kodePinjam, l.loanDate, l.expectedReturnDate,
-                   l.status, l.returnProofUrl, l.returnProofDate, l.createdAt,
+                   l.status, l.returnProofUrl, l.actualReturnDate, l.createdAt,
                    u.npm, u.username, u.fakultas,
                    b.title, b.author, b.kodeBuku
             FROM loans l
@@ -1456,7 +1456,7 @@ exports.getReturnsForReview = async (req, res) => {
             JOIN books b ON l.book_id = b.id
             WHERE (l.status = 'Siap Dikembalikan') 
                OR (l.status IN ('Sedang Dipinjam', 'Terlambat') AND l.returnProofUrl IS NOT NULL)
-            ORDER BY l.returnProofDate DESC, l.loanDate DESC
+            ORDER BY l.actualReturnDate DESC, l.loanDate DESC
         `);
         
         console.log('✅ [getReturnsForReview] Found:', result.rows?.length || 0, 'returns');
