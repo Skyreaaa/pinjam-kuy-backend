@@ -262,6 +262,12 @@ app.use('/api/loans', loanRoutes);
 app.use('/api/books', bookRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/push', pushRoutes);
+
+// Alias routes without /api prefix for frontend compatibility
+app.use('/loans', loanRoutes);
+app.use('/books', bookRoutes);
+app.use('/profile', profileRoutes);
+
 console.log('✅ Routes registered');
 
 let pool;
