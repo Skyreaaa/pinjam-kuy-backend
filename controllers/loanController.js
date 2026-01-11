@@ -1351,30 +1351,24 @@ exports.submitFinePayment = async (req, res) => {
     
     // PostgreSQL uses pool directly
     try {
-        // No getConnection needed
-        // No transactions for now
-        
         // Get user info
-        const [users] = await pool.query('SELECT username, npm FROM users WHERE id =: LIMIT 1', [userId]);
-        if (!users.length) {
-            // No rollback
+        const userResult = await pool.query('SELECT username, npm FROM users WHERE id = $1 LIMIT 1', [userId]);
+        if (userResult.rows.length === 0) {
             return res.status(404).json({ message: 'User tidak ditemukan.' });
         }
         
-        const user = users[0];
+        const user = userResult.rows[0];
         let proofUrl = null;
         
         // Handle file upload untuk bank_transfer
         if (method === 'bank_transfer') {
             if (!accountName) {
-                // No rollback
                 return res.status(400).json({ message: 'Nama rekening wajib diisi untuk transfer bank.' });
             }
             
             if (req.file) {
                 proofUrl = `/uploads/fine-proofs/${req.file.filename}`;
             } else {
-                // No rollback
                 return res.status(400).json({ message: 'Bukti transfer wajib diupload.' });
             }
         }
@@ -1382,11 +1376,11 @@ exports.submitFinePayment = async (req, res) => {
         // Insert fine payment record
         const result = await pool.query(
             `INSERT INTO fine_payments (user_id, username, npm, method, amount_total, proof_url, loan_ids, status, account_name, bank_name, created_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, CURRENT_TIMESTAMP)`,
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9, CURRENT_TIMESTAMP) RETURNING id`,
             [userId, user.username, user.npm, method, totalAmount, proofUrl, JSON.stringify(loanIds), accountName || null, bankName || null]
         );
         
-        // No commit
+        const paymentId = result.rows[0]?.id;
         
         // Send notification to user
         const message = method === 'cash' 
@@ -1402,7 +1396,7 @@ exports.submitFinePayment = async (req, res) => {
                 io.to(`user_${userId}`).emit('notification', {
                     message,
                     type: 'info',
-                    paymentId: result.rows[0]?.id
+                    paymentId
                 });
             }
         } catch (err) {
@@ -1415,7 +1409,7 @@ exports.submitFinePayment = async (req, res) => {
                 title: 'Pembayaran Denda',
                 message,
                 tag: 'fine-payment',
-                data: { paymentId: result.rows[0]?.id, type: 'payment' }
+                data: { paymentId, type: 'payment' }
             });
         } catch (err) {
             console.warn('[PUSH] Gagal kirim push:', err.message);
@@ -1424,14 +1418,11 @@ exports.submitFinePayment = async (req, res) => {
         res.json({ 
             success: true, 
             message: 'Pembayaran berhasil diajukan.', 
-            paymentId: result.rows[0]?.id 
+            paymentId 
         });
     } catch (e) {
-        // PostgreSQL - No explicit rollback needed
-        console.error('❌ Error submitting fine payment:', e);
-        res.status(500).json({ message: 'Gagal mengajukan pembayaran.' });
-    } finally {
-        // PostgreSQL - No connection release needed
+        console.error('❌ [submitFinePayment] Error:', e);
+        res.status(500).json({ message: 'Gagal mengajukan pembayaran.', error: e.message });
     }
 };
 
