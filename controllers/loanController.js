@@ -1418,6 +1418,55 @@ exports.getPaymentHistory = async (req, res) => {
     }
 };
 
+// Get active loans list for admin (Diambil, Sedang Dipinjam, Terlambat)
+exports.getActiveLoansList = async (req, res) => {
+    const pool = getDBPool(req);
+    try {
+        const result = await pool.query(`
+            SELECT l.id, l.user_id, l.book_id, l.kodePinjam, l.loanDate, l.expectedReturnDate, 
+                   l.status, l.purpose, l.createdAt,
+                   u.npm, u.username, u.fakultas,
+                   b.title, b.author, b.kodeBuku
+            FROM loans l
+            JOIN users u ON l.user_id = u.id
+            JOIN books b ON l.book_id = b.id
+            WHERE l.status IN ('Diambil', 'Sedang Dipinjam', 'Terlambat')
+            ORDER BY l.loanDate DESC
+        `);
+        
+        res.json(result.rows || []);
+    } catch (error) {
+        console.error('❌ [getActiveLoansList] Error:', error);
+        res.status(500).json({ message: 'Gagal memuat pinjaman aktif', error: error.message });
+    }
+};
+
+// Get returns for review (Siap Dikembalikan, Sedang Dipinjam dengan return proof)
+exports.getReturnsForReview = async (req, res) => {
+    console.log('🔍 [getReturnsForReview] Called');
+    const pool = getDBPool(req);
+    try {
+        const result = await pool.query(`
+            SELECT l.id, l.user_id, l.book_id, l.kodePinjam, l.loanDate, l.expectedReturnDate,
+                   l.status, l.returnProofUrl, l.returnProofDate, l.createdAt,
+                   u.npm, u.username, u.fakultas,
+                   b.title, b.author, b.kodeBuku
+            FROM loans l
+            JOIN users u ON l.user_id = u.id
+            JOIN books b ON l.book_id = b.id
+            WHERE (l.status = 'Siap Dikembalikan') 
+               OR (l.status IN ('Sedang Dipinjam', 'Terlambat') AND l.returnProofUrl IS NOT NULL)
+            ORDER BY l.returnProofDate DESC, l.loanDate DESC
+        `);
+        
+        console.log('✅ [getReturnsForReview] Found:', result.rows?.length || 0, 'returns');
+        res.json(result.rows || []);
+    } catch (error) {
+        console.error('❌ [getReturnsForReview] Error:', error);
+        res.status(500).json({ message: 'Gagal memuat pengembalian', error: error.message });
+    }
+};
+
 
 
 

@@ -178,29 +178,10 @@ router.post('/broadcast', async (req, res) => {
 });
 
 
-// Approval pinjaman dinonaktifkan
-// router.get('/loans/pending', loanController.getPendingLoans); 
-router.get('/loans/pending', (req, res) => res.status(403).json({ message: 'Approval pinjaman dinonaktifkan.' }));
-
 // =========================================================
-//                       KELOLA PENGGUNA - TEMPORARILY DISABLED
+//                       KELOLA PENGGUNA
 // =========================================================
-// TODO: Implement these functions in adminController
-// router.get('/users', adminController.getAllUsers);
-// router.post('/users', adminController.createUser);
-// router.put('/users/:id', adminController.updateUser);
-// router.delete('/users/:id', adminController.deleteUser);
-
-// Temporary placeholder for user management
-router.get('/users', async (req, res) => {
-    const pool = req.app.get('dbPool');
-    try {
-        const result = await pool.query('SELECT id, npm, username, role, fakultas, prodi FROM users ORDER BY id DESC');
-        res.json(result.rows || []);
-    } catch (e) {
-        res.status(500).json({ message: 'Error fetching users' });
-    }
-});
+// Users routes already defined at the top (lines 63-106)
 
 // =========================================================
 //                       KELOLA DENDA - TEMPORARILY DISABLED
@@ -295,27 +276,24 @@ router.post('/fines/verify', async (req,res)=>{
 //                   KELOLA PINJAMAN & PENGEMBALIAN (Menggunakan loanController)
 // =========================================================
 
-// Daftar Pinjaman Tertunda
-router.get('/loans/pending', loanController.getPendingLoans); 
+// Get active loans (Diambil, Sedang Dipinjam, Terlambat)
+router.get('/loans/active', loanController.getActiveLoansList);
 // Daftar Pengembalian yang Sedang Dipinjam/Terlambat/Siap Dikembalikan
 router.get('/returns/review', (req, res, next) => {
-    console.log('🎯 [Route] /returns/review hit');
+    console.log('🎯 [Route] /admin/returns/review hit');
     next();
 }, loanController.getReturnsForReview);
 // Riwayat Pengembalian & Persetujuan (Dikembalikan, Ditolak)
 router.get('/history', loanController.getHistory);
 
-// Get active loans (Diambil, Sedang Dipinjam, Terlambat)
-router.get('/loans/active', loanController.getActiveLoans);
 // Send reminder to user
 router.post('/loans/send-reminder', loanController.sendLoanReminder);
 
-// Aksi Pinjaman: POST /api/admin/loans/approve (body: {loanId, expectedReturnDate})
-router.post('/loans/approve', loanController.approveLoan);
-router.post('/loans/scan', loanController.scanLoan); // body: { kodePinjam }
-router.post('/loans/start', loanController.startLoan); // body: { loanId }
+// Aksi Pinjaman: POST /api/admin/loans/scan (body: { kodePinjam })
+router.post('/loans/scan', loanController.scanLoan);
+// Aksi Pinjaman: POST /api/admin/loans/start (body: { loanId })
+router.post('/loans/start', loanController.startLoan);
 // Approval pinjaman dinonaktifkan
-// router.post('/loans/approve', loanController.approveLoan);
 router.post('/loans/approve', (req, res) => res.status(403).json({ message: 'Approval pinjaman dinonaktifkan.' }));
 // Aksi Pinjaman: POST /api/admin/loans/reject (body: {loanId})
 router.post('/loans/reject', loanController.rejectLoan);

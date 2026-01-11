@@ -269,11 +269,11 @@ exports.updateBook = async (req, res) => {
         `);
         const existingColumns = columnsResult.rows.map(col => col.column_name);
         
-        // Build dynamic update query
+        // Build dynamic update query with PostgreSQL placeholders
         const updates = [
-            'title = ?', 'kodeBuku = ?', 'author = ?', 'publisher = ?', 'publicationYear = ?',
-            'totalStock = ?', 'availableStock = ?', 'category = ?', 'image_url = ?',
-            'description = ?', 'location = ?'
+            'title = $1', 'kodeBuku = $2', 'author = $3', 'publisher = $4', 'publicationYear = $5',
+            'totalStock = $6', 'availableStock = $7', 'category = $8', 'image_url = $9',
+            'description = $10', 'location = $11'
         ];
         const values = [
             title, kodeBuku, author, publisher || null, publicationYear || null,
@@ -281,39 +281,47 @@ exports.updateBook = async (req, res) => {
             description || null, location
         ];
         
+        let paramCount = 12;
         // Add optional columns if they exist
-        if (existingColumns.includes('programStudi')) {
-            updates.push('programStudi = $PH');
+        if (existingColumns.includes('programstudi')) {
+            updates.push(`programStudi = $${paramCount}`);
             values.push(programStudi || null);
+            paramCount++;
         }
         if (existingColumns.includes('bahasa')) {
-            updates.push('bahasa = $PH');
+            updates.push(`bahasa = $${paramCount}`);
             values.push(bahasa || 'Bahasa Indonesia');
+            paramCount++;
         }
-        if (existingColumns.includes('jenisKoleksi')) {
-            updates.push('jenisKoleksi = $PH');
+        if (existingColumns.includes('jeniskoleksi')) {
+            updates.push(`jenisKoleksi = $${paramCount}`);
             values.push(jenisKoleksi || 'Buku Asli');
+            paramCount++;
         }
         if (existingColumns.includes('lampiran')) {
-            updates.push('lampiran = $PH');
+            updates.push(`lampiran = $${paramCount}`);
             values.push(lampiran || 'Tidak Ada');
+            paramCount++;
         }
         if (existingColumns.includes('attachment_url')) {
-            updates.push('attachment_url = $PH');
+            updates.push(`attachment_url = $${paramCount}`);
             values.push(finalAttachmentUrl);
+            paramCount++;
         }
-        if (existingColumns.includes('pemusatanMateri')) {
-            updates.push('pemusatanMateri = $PH');
+        if (existingColumns.includes('pemusatanmateri')) {
+            updates.push(`pemusatanMateri = $${paramCount}`);
             values.push(pemusatanMateri || null);
+            paramCount++;
         }
         if (existingColumns.includes('pages')) {
-            updates.push('pages = $PH');
+            updates.push(`pages = $${paramCount}`);
             values.push(pages || null);
+            paramCount++;
         }
         
-        values.push(bookId); // WHERE id = ?
+        values.push(bookId); // WHERE id = $paramCount
         
-        const updateQuery = `UPDATE books SET ${updates.join(', ')} WHERE id = ?`;
+        const updateQuery = `UPDATE books SET ${updates.join(', ')} WHERE id = $${paramCount}`;
         console.log('📊 [UPDATE BOOK] SQL:', updateQuery);
         console.log('📊 [UPDATE BOOK] Values:', values);
 
