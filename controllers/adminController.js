@@ -55,20 +55,22 @@ exports.getMonthlyActivity = async (req, res) => {
     const pool = getDBPool(req);
     try {
         const result1 = await pool.query(`
-            SELECT DATE_FORMAT(createdAt, '%Y-%m') as month, COUNT(*) as loanCount
+            SELECT TO_CHAR(createdAt, 'YYYY-MM') as month, COUNT(*) as loanCount
             FROM loans
             GROUP BY month
             ORDER BY month DESC
             LIMIT 12
         `);
+        const loans = result1.rows;
         const result2 = await pool.query(`
-            SELECT DATE_FORMAT(updatedAt, '%Y-%m') as month, COUNT(*) as returnCount
+            SELECT TO_CHAR(updatedAt, 'YYYY-MM') as month, COUNT(*) as returnCount
             FROM loans
             WHERE status = 'Dikembalikan'
             GROUP BY month
             ORDER BY month DESC
             LIMIT 12
         `);
+        const returns = result2.rows;
         res.json({ loans, returns });
     } catch (e) {
         console.error('[ADMIN][MONTHLY_ACTIVITY] Error:', e);
@@ -83,6 +85,7 @@ exports.getActiveLoans = async (req, res) => {
         const result1 = await pool.query(`
             SELECT COUNT(*) as activeLoans FROM loans WHERE status IN ('Sedang Dipinjam', 'Terlambat', 'Siap Dikembalikan')
         `);
+        const activeLoans = result1.rows[0]?.activeloans || 0;
         res.json({ activeLoans });
     } catch (e) {
         console.error('[ADMIN][ACTIVE_LOANS] Error:', e);
@@ -95,8 +98,9 @@ exports.getOutstandingFines = async (req, res) => {
     const pool = getDBPool(req);
     try {
         const result1 = await pool.query(`
-            SELECT SUM(fineAmount) as totalOutstandingFines FROM loans WHERE fineAmount > 0 AND (finePaid IS NULL OR finePaid = 0)
+            SELECT SUM(fineAmount) as totalOutstandingFines FROM loans WHERE fineAmount > 0 AND (finePaid IS NULL OR finePaid = FALSE)
         `);
+        const totalOutstandingFines = result1.rows[0]?.totaloutstandingfines || 0;
         res.json({ totalOutstandingFines: totalOutstandingFines || 0 });
     } catch (e) {
         console.error('[ADMIN][OUTSTANDING_FINES] Error:', e);
@@ -111,7 +115,7 @@ exports.getNotificationStats = async (req, res) => {
         const { rows } = await pool.query(`
             SELECT DATE(createdAt) as date, COUNT(*) as notifCount
             FROM user_notifications
-            WHERE createdAt >= DATE_SUB(CURRENT_DATE, INTERVAL 30 DAY)
+            WHERE createdAt >= CURRENT_DATE - INTERVAL '30 days'
             GROUP BY date
             ORDER BY date DESC
         `);
