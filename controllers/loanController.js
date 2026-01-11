@@ -1570,34 +1570,35 @@ exports.getUserActivityHistory = async (req, res) => {
         
         console.log('[ACTIVITY_HISTORY] Fetching activities since:', twoMonthsAgo);
         
-        // Get all loans from last 2 months with book info and admin rejection proof
+
+        // Get all loans from last 2 months with book info and admin rejection proof (PostgreSQL)
         let loansResult;
         try {
             loansResult = await pool.query(
                 `SELECT 
-                    l.id_pinjam AS "id",
+                    l.id AS "id",
                     l.kodepinjam AS "kodePinjam",
-                    l.tanggal_pinjam AS "loanDate",
-                    l.tanggal_kembali AS "expectedReturnDate",
-                    l.returnproofuploadedAt AS "actualReturnDate",
+                    l.loandate AS "loanDate",
+                    l.expectedreturndate AS "expectedReturnDate",
+                    l.actualreturndate AS "actualReturnDate",
                     l.status,
-                    COALESCE(l.totalfine, 0) AS "fineAmount",
-                    CASE WHEN l.finepaymentstatus = 'paid' THEN true ELSE false END AS "finePaid",
-                    COALESCE(l.fineforcostbook::text, '') AS "fineReason",
+                    COALESCE(l.fineamount, 0) AS "fineAmount",
+                    l.finepaid AS "finePaid",
+                    COALESCE(l.finereason, '') AS "fineReason",
                     COALESCE(l.rejectionreason, '') AS "rejectionReason",
                     l.rejectedat AS "rejectionDate",
-                    '' AS "adminRejectionProof",
-                    l.returnproofphoto AS "returnProofUrl",
-                    '{}' AS "returnProofMetadata",
-                    l.created_at AS "createdAt",
-                    b.judul AS "bookTitle",
-                    b.pengarang AS "author",
-                    b.isbn AS "kodeBuku"
-                 FROM loan l
-                 JOIN books b ON l.id_buku = b.id_buku
-                 WHERE l.id_user = $1 
-                    AND l.created_at >= $2
-                 ORDER BY l.created_at DESC`,
+                    l.adminrejectionproof AS "adminRejectionProof",
+                    l.returnproofurl AS "returnProofUrl",
+                    l.returnproofmetadata AS "returnProofMetadata",
+                    l.createdat AS "createdAt",
+                    b.title AS "bookTitle",
+                    b.author AS "author",
+                    b.kodebuku AS "kodeBuku"
+                 FROM loans l
+                 JOIN books b ON l.book_id = b.id
+                 WHERE l.user_id = $1 
+                    AND l.createdat >= $2
+                 ORDER BY l.createdat DESC`,
                 [userId, twoMonthsAgo]
             );
         } catch (loansError) {
@@ -1608,25 +1609,26 @@ exports.getUserActivityHistory = async (req, res) => {
                 error: loansError.message 
             });
         }
-        
+
         console.log('[ACTIVITY_HISTORY] Found loans:', loansResult.rows.length);
-        
-        // Get fine payments from last 2 months
+
+        // Get fine payments from last 2 months (PostgreSQL)
         let paymentsResult;
         try {
             paymentsResult = await pool.query(
                 `SELECT 
                     id,
                     'fine_payment' AS "method",
-                    amount_paid AS "amountTotal",
-                    CASE WHEN approved_at IS NOT NULL THEN 'verified' ELSE 'pending' END AS "status",
-                    submitted_at AS "createdAt",
-                    approved_at AS "verifiedAt",
-                    '' AS "adminNotes"
-                 FROM loan_fine_payments
-                 WHERE id_pinjam IN (SELECT id_pinjam FROM loan WHERE id_user = $1)
-                    AND submitted_at >= $2
-                 ORDER BY submitted_at DESC`,
+                    amount_total AS "amountTotal",
+                    method,
+                    status,
+                    created_at AS "createdAt",
+                    verified_at AS "verifiedAt",
+                    admin_notes AS "adminNotes"
+                 FROM fine_payments
+                 WHERE user_id = $1
+                    AND created_at >= $2
+                 ORDER BY created_at DESC`,
                 [userId, twoMonthsAgo]
             );
         } catch (paymentsError) {
@@ -1634,7 +1636,7 @@ exports.getUserActivityHistory = async (req, res) => {
             // Continue without payments if table doesn't exist
             paymentsResult = { rows: [] };
         }
-        
+
         console.log('[ACTIVITY_HISTORY] Found payments:', paymentsResult.rows.length);
         
         // Combine and format activity data
