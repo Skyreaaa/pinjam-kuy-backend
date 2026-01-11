@@ -763,10 +763,11 @@ exports.processReturn = async (req, res) => {
         const actualReturnDate = new Date();
 
         // 1. Ambil data pinjaman untuk perhitungan denda otomatis
-        const [loanData] = await pool.query(
-            "SELECT l.expectedReturnDate, l.book_id, l.user_id, u.denda, b.title FROM loans l JOIN users u ON l.user_id = u.id JOIN books b ON l.book_id = b.id WHERE l.id =: AND l.status IN ($2, $3, $4)",
+        const _pgResult = await pool.query(
+            "SELECT l.expectedReturnDate, l.book_id, l.user_id, u.denda, b.title FROM loans l JOIN users u ON l.user_id = u.id JOIN books b ON l.book_id = b.id WHERE l.id = $1 AND l.status IN ($2, $3, $4)",
             [loanId, 'Sedang Dipinjam', 'Terlambat', 'Siap Dikembalikan']
         );
+        const loanData = _pgResult.rows;
 
         if (loanData.length === 0) {
             // No rollback
@@ -868,10 +869,11 @@ exports.rejectReturnProof = async (req, res) => {
         // No getConnection needed
         // No transactions for now
 
-        const [rows] = await pool.query(
-            `SELECT id, expectedReturnDate, status FROM loans WHERE id=$1 FOR UPDATE`,
+        const _pgResult = await pool.query(
+            `SELECT id, expectedReturnDate, status, user_id FROM loans WHERE id=$1`,
             [loanId]
         );
+        const rows = _pgResult.rows;
         if (!rows.length) {
             // No rollback
             return res.status(404).json({ message: 'Pinjaman tidak ditemukan.' });
@@ -896,11 +898,11 @@ exports.rejectReturnProof = async (req, res) => {
         let user_id = loan.user_id;
         if (fineAmount > 0) {
             await pool.query(
-                `UPDATE loans SET fineAmount = fineAmount +: WHERE id=$2`,
+                `UPDATE loans SET fineAmount = fineAmount + $1 WHERE id=$2`,
                 [fineAmount, loanId]
             );
             await pool.query(
-                `UPDATE users SET denda = denda + $1, denda_unpaid = denda_unpaid +: WHERE id = $3`,
+                `UPDATE users SET denda = denda + $1, denda_unpaid = denda_unpaid + $2 WHERE id = $3`,
                 [fineAmount, fineAmount, user_id]
             );
         }
@@ -910,10 +912,11 @@ exports.rejectReturnProof = async (req, res) => {
         // --- TRIGGER SOCKET.IO NOTIFIKASI USER: Bukti pengembalian ditolak ---
         try {
             // Ambil user_id dan judul buku
-            const [loanRows] = await pool.query(
+            const _pgLoanResult = await pool.query(
                 `SELECT l.user_id, b.title FROM loans l JOIN books b ON l.book_id = b.id WHERE l.id = $1`,
                 [loanId]
             );
+            const loanRows = _pgLoanResult.rows;
             if (loanRows.length) {
                 const { user_id, title } = loanRows[0];
                 const io = req.app.get('io');
