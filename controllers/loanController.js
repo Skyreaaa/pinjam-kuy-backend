@@ -1461,7 +1461,21 @@ exports.submitFinePayment = async (req, res) => {
             }
             
             if (req.file) {
-                proofUrl = `/uploads/fine-proofs/${req.file.filename}`;
+                // Debug: Log all file properties
+                console.log('📸 [submitFinePayment] File object:', JSON.stringify({
+                    path: req.file.path,
+                    filename: req.file.filename,
+                    originalname: req.file.originalname,
+                    mimetype: req.file.mimetype,
+                    size: req.file.size,
+                    fieldname: req.file.fieldname,
+                    secure_url: req.file.secure_url,
+                    url: req.file.url
+                }, null, 2));
+                
+                // Use Cloudinary URL - try path first, then secure_url, then url
+                proofUrl = req.file.path || req.file.secure_url || req.file.url;
+                console.log('📸 [submitFinePayment] Saved proofUrl:', proofUrl);
             } else {
                 return res.status(400).json({ message: 'Bukti transfer wajib diupload.' });
             }
@@ -1947,7 +1961,7 @@ exports.verifyFinePayment = async (req, res) => {
     }
 };
 
-// Get all fine payments for admin
+// Get all fine payments for admin (only pending ones)
 exports.getAllFinePayments = async (req, res) => {
     const pool = getDBPool(req);
     try {
@@ -1955,6 +1969,7 @@ exports.getAllFinePayments = async (req, res) => {
             `SELECT fp.*, u.username, u.npm 
              FROM fine_payments fp 
              JOIN users u ON fp.user_id = u.id 
+             WHERE fp.status = 'pending'
              ORDER BY fp.created_at DESC`
         );
         
